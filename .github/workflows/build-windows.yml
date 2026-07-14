@@ -1,0 +1,22 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build EXE
+        run: powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liftpic-sync-windows
+          path: dist/liftpic-sync.exe

@@ -1,0 +1,10 @@
+project_id = "replace-with-project-ref"
+
+[functions.liftpic-ingest-begin]
+verify_jwt = false
+
+[functions.liftpic-ingest-commit]
+verify_jwt = false
+
+[functions.liftpic-status]
+verify_jwt = false
