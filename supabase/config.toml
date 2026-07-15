@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.liftpic-config]
 verify_jwt = false
+
+[functions.liftpic-assets]
+verify_jwt = false
