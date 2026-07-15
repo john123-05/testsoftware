@@ -24,11 +24,18 @@ class SupabaseIngestClient:
             },
         )
 
-    def commit(self, capture_id: str, storage_path: str, raw_storage_path: str | None = None) -> dict[str, Any]:
+    def commit(
+        self,
+        capture_id: str,
+        storage_path: str,
+        raw_storage_path: str | None = None,
+        event_key: str | None = None,
+    ) -> dict[str, Any]:
         return self._post_json(
             "liftpic-ingest-commit",
             {
                 "capture_id": capture_id,
+                "event_key": event_key,
                 "storage_path": storage_path,
                 "raw_storage_path": raw_storage_path,
             },

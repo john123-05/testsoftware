@@ -10,6 +10,7 @@ Deno.serve(async (req) => {
     const parkSlug = metadata.park_slug ?? "unknown-park";
     const legacyFilename = metadata.legacy_filename;
     const capturedAt = metadata.captured_at ?? new Date().toISOString();
+    const eventKey = metadata.event_key ?? `${String(capturedAt).slice(0, 10)}|${metadata.capture_id}`;
     if (!legacyFilename) {
       return json({ error: "metadata.legacy_filename is required" }, 400);
     }
@@ -22,6 +23,8 @@ Deno.serve(async (req) => {
       park_id: auth.parkId,
       park_slug: parkSlug,
       machine_id: auth.machineId,
+      event_key: eventKey,
+      camera_code: metadata.camera_code ?? null,
       capture_id: metadata.capture_id,
       legacy_filename: legacyFilename,
       legacy_code: metadata.legacy_code,
@@ -35,7 +38,7 @@ Deno.serve(async (req) => {
       checksum_sha256: metadata.checksum_sha256,
       processed_storage_path: storagePath,
       metadata,
-    }, { onConflict: "machine_id,capture_id" });
+    }, { onConflict: "machine_id,event_key" });
     if (upsertError) throw upsertError;
 
     const { data, error } = await supabase.storage

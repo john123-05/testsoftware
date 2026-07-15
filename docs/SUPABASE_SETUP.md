@@ -14,6 +14,12 @@ upload target.
   - `liftpic-ingest-commit`
   - `liftpic-status`
 
+`liftpic-status` stores both machine health and daily ride rollups in
+`park_photo_ride_daily`. These rollups are small JSON/SQL counters
+(`photos_taken_count`, `photos_sold_count`, conversion, last capture time).
+They are separate from Storage uploads, so unbought JPEGs do not need to be
+sent to Supabase.
+
 ## Function secrets
 
 Configure these in Supabase, not in Git:

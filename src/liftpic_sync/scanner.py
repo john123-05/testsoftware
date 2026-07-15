@@ -8,6 +8,7 @@ from pathlib import Path
 from .config import Settings
 from .filename_codec import build_legacy_filename, parse_capture_filename
 from .files import is_image, is_stable, sha256_file
+from .identity import build_event_key
 from .speed import find_matching_processed_file, speed_from_processed_name
 from .state import PhotoEvent, StateStore
 
@@ -71,6 +72,13 @@ class FolderScanner:
                 capture_id=parsed.capture_id,
                 captured_at=captured_at,
             )
+            business_date = captured_at.date().isoformat()
+            event_key = build_event_key(
+                machine_id=self.settings.machine_id,
+                camera_code=self.settings.camera_code,
+                business_date=business_date,
+                capture_id=parsed.capture_id,
+            )
             stage_path = self._stage_if_needed(path, legacy.filename)
             if stage_path != path:
                 staged += 1
@@ -81,6 +89,9 @@ class FolderScanner:
                 "park_slug": self.settings.park_slug,
                 "park_id": self.settings.park_id,
                 "machine_id": self.settings.machine_id,
+                "camera_code": self.settings.camera_code,
+                "event_key": event_key,
+                "business_date": business_date,
                 "capture_id": parsed.capture_id,
                 "legacy_filename": legacy.filename,
                 "legacy_code": legacy.legacy_code,
@@ -107,6 +118,7 @@ class FolderScanner:
                 speed_status=speed_match.status,
                 upload_status=status,
                 checksum=checksum,
+                event_key=event_key,
             )
             self.store.upsert_event(event, metadata)
             queued += 1

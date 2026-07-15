@@ -14,6 +14,8 @@ copy config\park.example.env .env
 - `PARK_ID`: Supabase UUID for the park/attraction
 - `CUSTOMER_CODE`: four-digit customer code used in legacy filenames
 - `MACHINE_ID`: stable PC/camera identifier, for example `plose-pc1`
+- `CAMERA_CODE`: stable camera/track code under the machine, for example
+  `cam1` or `plosebob-main`
 - `DEVICE_TOKEN`: secret token issued for this machine
 - `SUPABASE_FUNCTIONS_URL`: project functions URL
 
@@ -30,12 +32,29 @@ UPLOAD_SOURCE=qrcode
 STAGE_IN_SHADOW=false
 STATISTIC_FILE=C:\liftpic\samuel_neu\Statistic.txt
 PRINT_COUNT_FILE=C:\liftpic\samuel_neu\PrintCount.txt
+CAMERA_CODE=cam1
+RIDE_COUNT_ENABLED=true
+RIDE_COUNT_SOURCE=processed,raw
 ```
 
 Use `UPLOAD_SOURCE=qrcode` for the current sold-photo flow. Use
 `UPLOAD_SOURCE=webout` only if another attraction already stages renamed files
 there. Use `UPLOAD_SOURCE=all` only for diagnostics because it may queue unsold
 raw/processed photos.
+
+## Ride counts without uploading every photo
+
+`RIDE_COUNT_ENABLED=true` makes the service count every camera event locally.
+The default `RIDE_COUNT_SOURCE=processed,raw` reads `fotos\out` first because
+AidaTest filenames contain timestamp and speed, then uses raw `fotos` as a
+fallback. Raw and processed files for the same ride are de-duplicated by:
+
+```text
+MACHINE_ID + CAMERA_CODE + business date + five-digit capture number
+```
+
+The heartbeat sends small daily counters such as `photos_taken_today`,
+`photos_sold_today`, and `ride_rollups`. It does not upload unbought JPEGs.
 
 ## Legacy filename behavior
 

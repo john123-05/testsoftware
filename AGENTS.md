@@ -51,5 +51,12 @@ different park/machine configuration.
 - Local durability is SQLite, not JSON-only state.
 - Supabase writes go through Edge Functions and signed upload URLs. The PC
   should not need a Supabase service role key.
+- Ride counting is separate from photo upload. `RideTracker` scans
+  `fotos\out`/`fotos`, stores de-duplicated ride events in SQLite, and sends
+  daily counters through `liftpic-status`. Only sold QR-code images from
+  `fotos\qrcode` are staged/uploaded as JPEGs.
+- Do not key photo events only by `capture_id`: the camera counter resets
+  nightly. Use `event_key = MACHINE_ID + CAMERA_CODE + business date +
+  capture_id` for both ride events and sold-photo upload events.
 - If GitHub push fails because Git/auth is missing, finish the local repo and
   report the exact next command once credentials are available.

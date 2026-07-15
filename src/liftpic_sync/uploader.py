@@ -17,6 +17,7 @@ class UploadWorker:
     def upload_due(self, limit: int = 10) -> int:
         uploaded = 0
         for row in self.store.due_uploads(limit):
+            event_key = row["event_key"]
             capture_id = row["capture_id"]
             try:
                 source_path = self._source_path(row)
@@ -24,7 +25,7 @@ class UploadWorker:
 
                 if self.settings.shadow_mode:
                     storage_path = self._storage_path(row["legacy_filename"], row["captured_at"])
-                    self.store.mark_shadowed(capture_id, f"shadow://{storage_path}")
+                    self.store.mark_shadowed(event_key, f"shadow://{storage_path}")
                     uploaded += 1
                     continue
 
@@ -44,13 +45,13 @@ class UploadWorker:
                     signed_url=signed_url,
                     path=source_path,
                 )
-                self.client.commit(capture_id, storage_path)
-                self.store.mark_uploaded(capture_id, storage_path)
+                self.client.commit(capture_id, storage_path, event_key=event_key)
+                self.store.mark_uploaded(event_key, storage_path)
                 uploaded += 1
             except Exception as exc:
                 attempts = int(row["attempts"] or 0)
                 self.store.mark_retry(
-                    capture_id,
+                    event_key,
                     str(exc),
                     next_retry_after(self.settings.upload_retry_seconds, attempts),
                 )

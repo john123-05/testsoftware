@@ -68,6 +68,25 @@ def test_scan_queues_event_with_processed_speed(tmp_path: Path):
     assert row["speed_kmh"] == 13.95
 
 
+def test_scan_keeps_same_capture_id_on_different_days(tmp_path: Path):
+    settings = make_settings(tmp_path)
+    store = StateStore(settings.state_db)
+    scanner = FolderScanner(settings, store)
+
+    day_one = settings.processed_dir / "00047_202607141813242069.jpg"
+    day_one.write_bytes(b"day one")
+    assert scanner.scan_once().queued == 1
+    day_one.unlink()
+
+    day_two = settings.processed_dir / "00047_202607151813242069.jpg"
+    day_two.write_bytes(b"day two")
+    assert scanner.scan_once().queued == 1
+
+    count = store.conn.execute("SELECT COUNT(*) FROM photo_events WHERE capture_id='00047'").fetchone()[0]
+    assert count == 2
+    assert len(list(store.due_uploads())) == 2
+
+
 def test_qrcode_source_stages_renamed_file_to_webout(tmp_path: Path):
     raw = tmp_path / "fotos"
     out = raw / "out"
