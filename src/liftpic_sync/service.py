@@ -7,6 +7,7 @@ from datetime import datetime
 
 from .asset_sync import AssetSyncWorker
 from .config import Settings
+from .operational_monitor import read_operational_status
 from .ride_tracker import RideTracker
 from .scanner import FolderScanner
 from .state import StateStore
@@ -77,6 +78,7 @@ class LiftpicService:
     def health(self) -> dict[str, object]:
         usage = shutil.disk_usage(self.settings.app_dir.anchor or ".")
         local_status = read_local_status(self.settings.statistic_file, self.settings.print_count_file)
+        operational_status = read_operational_status(self.settings)
         ride_rollups = self.store.ride_rollups(
             park_id=self.settings.park_id,
             park_slug=self.settings.park_slug,
@@ -101,13 +103,19 @@ class LiftpicService:
             "ride_counts": self.store.ride_counts(),
             "asset_sync_enabled": self.settings.asset_sync_enabled,
             "asset_counts": self.store.asset_counts(),
+            "operational_devices": [device.__dict__ for device in operational_status.devices],
+            "operational_events": operational_status.events,
+            "coin_status": operational_status.coin_status,
+            "terminal_status": operational_status.terminal_status,
+            "printer_status": operational_status.printer_status,
             "ride_rollups": ride_rollups,
             "photos_taken_today": photos_taken_today,
             "photos_sold_today": photos_sold_today,
             "photo_conversion_today": round(photos_sold_today / photos_taken_today, 4) if photos_taken_today else None,
             "disk_free_mb": int(usage.free / 1024 / 1024),
+            "camera_status": operational_status.camera_status,
             "paper_remaining": local_status.paper_remaining,
-            "paper_status": local_status.paper_status,
+            "paper_status": operational_status.printer_status or local_status.paper_status,
             "statistic_file_size": local_status.statistic_file_size,
             "statistic_last_line": local_status.statistic_last_line,
         }

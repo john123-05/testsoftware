@@ -100,6 +100,11 @@ different park/machine configuration.
   `liftpic_asset_deployments`. The PC polls `liftpic-assets`, downloads signed
   files, validates SHA256 when present, backs up the old local file, then
   atomically replaces the target.
+- Operational health monitoring is read-only. `operational_monitor.py` tails
+  configured `OPERATIONAL_LOG_GLOBS` and summarizes old logs into heartbeat
+  fields: `operational_devices`, `operational_events`, `coin_status`,
+  `terminal_status`, `printer_status`, and `camera_status`. It must not control
+  COM ports, coin validators, ZVT terminals, printers, or cameras.
 - Do not key photo events only by `capture_id`: the camera counter resets
   nightly. Use `event_key = MACHINE_ID + CAMERA_CODE + business date +
   capture_id` for both ride events and sold-photo upload events.

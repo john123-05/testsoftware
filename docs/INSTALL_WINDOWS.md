@@ -34,6 +34,7 @@ The installer:
 - copies it to `C:\liftpic\liftpic-sync`
 - creates `C:\liftpic\liftpic-sync\.env` with the Supabase project URL
 - pairs the PC with the dashboard using `YOURCODE`
+- watches common old Liftpic log folders read-only for system health signals
 - installs a scheduled task named `LiftpicSync`
 - starts the sync in the background
 
@@ -51,6 +52,8 @@ In shadow mode:
 - no old Liftpic program is stopped
 - no local image is deleted
 - local print/logo asset sync stays off unless `ASSET_SYNC_ENABLED=true`
+- coin/terminal/printer/camera health is detected only from local log files;
+  the sync does not control payment hardware
 
 Do not run the old uploader and the new uploader live against the same sold
 photos at the same time. First observe in shadow mode, check health/ride counts,

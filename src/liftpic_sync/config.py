@@ -49,6 +49,9 @@ class Settings:
     asset_sync_seconds: float = 300
     asset_backup_dir: Path | None = None
     asset_allowed_roots: tuple[Path, ...] = ()
+    operational_log_globs: tuple[str, ...] = ()
+    operational_log_tail_lines: int = 80
+    operational_log_stale_minutes: int = 240
 
     @classmethod
     def from_env_file(cls, env_path: str | Path | None = None) -> "Settings":
@@ -70,6 +73,20 @@ class Settings:
         allowed_roots = tuple(
             Path(item.strip())
             for item in allowed_roots_raw.replace(",", ";").split(";")
+            if item.strip()
+        )
+        default_operational_globs = (
+            r"C:\liftpic\imageloader\*.txt;"
+            r"C:\liftpic\imageloader\*.log;"
+            r"C:\liftpic\kosel\*.log;"
+            r"C:\liftpic\CAMware\log\*.txt;"
+            r"C:\liftpic\CAMware\*.log;"
+            r"C:\liftpic\3GerTis\*.log"
+        )
+        operational_log_globs_raw = _get(values, "OPERATIONAL_LOG_GLOBS", default_operational_globs)
+        operational_log_globs = tuple(
+            item.strip()
+            for item in operational_log_globs_raw.replace(",", ";").split(";")
             if item.strip()
         )
 
@@ -110,6 +127,9 @@ class Settings:
             asset_sync_seconds=float(_get(values, "ASSET_SYNC_SECONDS", "300")),
             asset_backup_dir=Path(asset_backup_dir) if asset_backup_dir else None,
             asset_allowed_roots=allowed_roots,
+            operational_log_globs=operational_log_globs,
+            operational_log_tail_lines=int(_get(values, "OPERATIONAL_LOG_TAIL_LINES", "80")),
+            operational_log_stale_minutes=int(_get(values, "OPERATIONAL_LOG_STALE_MINUTES", "240")),
         )
 
     def ensure_dirs(self) -> None:

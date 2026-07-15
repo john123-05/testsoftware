@@ -95,6 +95,10 @@ ASSET_SYNC_ENABLED=false
 ASSET_SYNC_SECONDS=300
 ASSET_BACKUP_DIR=C:\liftpic\liftpic-sync\backups\assets
 ASSET_SYNC_ALLOWED_ROOTS=C:\liftpic\samuel_neu;C:\liftpic\imageloader;C:\liftpic\jpeg4web
+
+OPERATIONAL_LOG_GLOBS=C:\liftpic\imageloader\*.txt;C:\liftpic\imageloader\*.log;C:\liftpic\kosel\*.log;C:\liftpic\CAMware\log\*.txt;C:\liftpic\CAMware\*.log;C:\liftpic\3GerTis\*.log
+OPERATIONAL_LOG_TAIL_LINES=80
+OPERATIONAL_LOG_STALE_MINUTES=240
 "@
 
   Set-Content -Path $EnvPath -Value $content -Encoding ASCII

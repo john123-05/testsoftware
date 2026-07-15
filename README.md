@@ -22,6 +22,9 @@ The current PCs have several older programs chained together:
   every unsold JPEG
 - optionally, Liftpic Sync can pull dashboard-managed local assets such as
   Verkaufsautomat logos and print overlays back down to the PC
+- Liftpic Sync reads selected local `.txt`/`.log` files from old Liftpic
+  folders and reports summarized coin/terminal/printer/camera health in the
+  normal heartbeat
 - a small Python uploader uploads a watched folder directly to Supabase Storage
 
 That works, but it is hard to reason about, hard to reinstall on a different
@@ -62,6 +65,11 @@ as image files just to calculate conversion.
 
 Local asset sync is disabled by default. See `docs/ASSET_SYNC.md` before
 enabling it because it replaces local logo/overlay files, with backups.
+
+Operational log watching is read-only. It scans configured globs such as
+`C:\liftpic\imageloader\*.txt`, `C:\liftpic\kosel\*.log`, and CAMware logs,
+then reports device statuses like `Cash / Coin`, `Payment Terminal`, `Printer`
+and `Camera / Speed`. It does not open COM ports or control payment hardware.
 
 The first live rollout should use a test Supabase project/bucket before
 production. Do not disable the old system until `qrcode -> webout -> upload`
