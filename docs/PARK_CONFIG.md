@@ -64,6 +64,27 @@ MACHINE_ID + CAMERA_CODE + business date + five-digit capture number
 The heartbeat sends small daily counters such as `photos_taken_today`,
 `photos_sold_today`, and `ride_rollups`. It does not upload unbought JPEGs.
 
+## Local logo and overlay asset sync
+
+For dashboard-managed local files, enable:
+
+```text
+ASSET_SYNC_ENABLED=true
+ASSET_SYNC_SECONDS=300
+ASSET_BACKUP_DIR=C:\liftpic\liftpic-sync\backups\assets
+ASSET_SYNC_ALLOWED_ROOTS=C:\liftpic\samuel_neu;C:\liftpic\imageloader;C:\liftpic\jpeg4web
+```
+
+This lets the PC download assigned files from Supabase and replace only allowed
+local target paths such as viewer logos, `image1.png` print overlays, old
+`imageloader` templates or the old `jpeg4web` logo. Test manually with:
+
+```powershell
+python -m liftpic_sync.cli --env .env assets
+```
+
+More detail is in `docs/ASSET_SYNC.md`.
+
 ## Legacy filename behavior
 
 The system keeps legacy-compatible names online but stores clean metadata too.

@@ -20,6 +20,8 @@ The current PCs have several older programs chained together:
 - Liftpic Sync counts every ride from `fotos/out` and `fotos` as small
   telemetry, so dashboards can show rides vs. sold photos without uploading
   every unsold JPEG
+- optionally, Liftpic Sync can pull dashboard-managed local assets such as
+  Verkaufsautomat logos and print overlays back down to the PC
 - a small Python uploader uploads a watched folder directly to Supabase Storage
 
 That works, but it is hard to reason about, hard to reinstall on a different
@@ -61,6 +63,9 @@ events, but it does not upload or modify existing Liftpic folders.
 Ride counting is safe in shadow mode too: it writes only to the local SQLite
 state database and logs the heartbeat payload. Unbought photos are never sent
 as image files just to calculate conversion.
+
+Local asset sync is disabled by default. See `docs/ASSET_SYNC.md` before
+enabling it because it replaces local logo/overlay files, with backups.
 
 The first live rollout should use a test Supabase project/bucket before
 production. Do not disable the old system until `qrcode -> webout -> upload`

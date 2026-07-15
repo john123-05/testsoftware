@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 
+from .asset_sync import AssetSyncWorker
 from .config import Settings
 from .envfile import write_env_values
 from .logging_setup import configure_logging
@@ -55,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run", parents=[env_parent], help="Run forever")
     sub.add_parser("scan-once", parents=[env_parent], help="Scan and upload one iteration")
     sub.add_parser("health", parents=[env_parent], help="Print local health JSON")
+    sub.add_parser("assets", parents=[env_parent], help="Download dashboard-managed local assets once")
     pair = sub.add_parser("pair", parents=[env_parent], help="Pair this PC with a dashboard config")
     pair.add_argument("--code", required=True, help="Pairing code from the staff Liftpic Setup page")
     return parser
@@ -86,6 +88,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "health":
             print(json.dumps(service.health(), indent=2, sort_keys=True))
+            return 0
+        if args.command == "assets":
+            result = AssetSyncWorker(settings, service.store).sync_once()
+            print(json.dumps(result.__dict__, indent=2, sort_keys=True))
             return 0
     finally:
         service.close()

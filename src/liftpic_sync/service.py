@@ -5,6 +5,7 @@ import shutil
 import time
 from datetime import datetime
 
+from .asset_sync import AssetSyncWorker
 from .config import Settings
 from .ride_tracker import RideTracker
 from .scanner import FolderScanner
@@ -25,8 +26,10 @@ class LiftpicService:
         self.ride_tracker = RideTracker(settings, self.store)
         self.scanner = FolderScanner(settings, self.store)
         self.uploader = UploadWorker(settings, self.store)
+        self.asset_sync = AssetSyncWorker(settings, self.store)
         self.client = SupabaseIngestClient(settings)
         self._last_heartbeat = 0.0
+        self._last_asset_sync = 0.0
 
     def close(self) -> None:
         self.store.close()
@@ -39,14 +42,16 @@ class LiftpicService:
 
     def run_once(self) -> dict[str, object]:
         ride_result = self.ride_tracker.scan_once()
+        asset_result = self._asset_sync_if_due()
         result = self.scanner.scan_once()
         uploaded = self.uploader.upload_due()
         counts = self.store.counts()
         ride_counts = self.store.ride_counts()
         log.info(
-            "rides seen=%s new=%s queued=%s staged=%s unstable=%s unknown=%s uploaded=%s counts=%s ride_counts=%s",
+            "rides seen=%s new=%s assets=%s queued=%s staged=%s unstable=%s unknown=%s uploaded=%s counts=%s ride_counts=%s",
             ride_result.seen,
             ride_result.new,
+            asset_result,
             result.queued,
             result.staged,
             result.skipped_unstable,
@@ -59,6 +64,7 @@ class LiftpicService:
         return {
             "rides_seen": ride_result.seen,
             "rides_new": ride_result.new,
+            "asset_sync": asset_result,
             "queued": result.queued,
             "staged": result.staged,
             "skipped_unstable": result.skipped_unstable,
@@ -93,6 +99,8 @@ class LiftpicService:
             "log_dir": str(self.settings.log_dir),
             "counts": self.store.counts(),
             "ride_counts": self.store.ride_counts(),
+            "asset_sync_enabled": self.settings.asset_sync_enabled,
+            "asset_counts": self.store.asset_counts(),
             "ride_rollups": ride_rollups,
             "photos_taken_today": photos_taken_today,
             "photos_sold_today": photos_sold_today,
@@ -120,3 +128,26 @@ class LiftpicService:
             self.client.status(payload)
         except Exception as exc:
             log.warning("heartbeat failed: %s", exc)
+
+    def _asset_sync_if_due(self) -> dict[str, int] | None:
+        if not self.settings.asset_sync_enabled:
+            return None
+        now = time.time()
+        if now - self._last_asset_sync < self.settings.asset_sync_seconds:
+            return None
+        self._last_asset_sync = now
+
+        if self.settings.shadow_mode:
+            log.info("asset sync is enabled while upload shadow mode is active")
+
+        try:
+            result = self.asset_sync.sync_once()
+            return {
+                "fetched": result.fetched,
+                "applied": result.applied,
+                "skipped": result.skipped,
+                "failed": result.failed,
+            }
+        except Exception as exc:
+            log.warning("asset sync failed: %s", exc)
+            return {"fetched": 0, "applied": 0, "skipped": 0, "failed": 1}

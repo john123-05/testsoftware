@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -184,6 +184,29 @@ class StateStore:
             """
             CREATE INDEX IF NOT EXISTS ride_events_daily_idx
             ON ride_events(park_id, machine_id, camera_code, business_date)
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS asset_deployments (
+                deployment_id TEXT PRIMARY KEY,
+                slot TEXT,
+                target_path TEXT NOT NULL,
+                source_bucket TEXT,
+                source_path TEXT,
+                sha256 TEXT,
+                source_updated_at TEXT,
+                applied_at REAL NOT NULL,
+                backup_path TEXT,
+                status TEXT NOT NULL,
+                error TEXT
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS asset_deployments_status_idx
+            ON asset_deployments(status, applied_at)
             """
         )
         if cur.execute("SELECT COUNT(*) FROM schema_state").fetchone()[0] == 0:
@@ -447,3 +470,82 @@ class StateStore:
             "SELECT business_date, COUNT(*) AS count FROM ride_events GROUP BY business_date"
         ).fetchall()
         return {row["business_date"]: int(row["count"]) for row in rows}
+
+    def asset_is_current(
+        self,
+        *,
+        deployment_id: str,
+        target_path: str,
+        sha256: str | None,
+        source_updated_at: str | None,
+    ) -> bool:
+        row = self.conn.execute(
+            """
+            SELECT target_path, sha256, source_updated_at, status
+            FROM asset_deployments
+            WHERE deployment_id=?
+            """,
+            (deployment_id,),
+        ).fetchone()
+        if not row or row["status"] != "applied" or row["target_path"] != target_path:
+            return False
+        if sha256:
+            return row["sha256"] == sha256
+        if source_updated_at:
+            return row["source_updated_at"] == source_updated_at
+        return True
+
+    def record_asset_deployment(
+        self,
+        *,
+        deployment_id: str,
+        slot: str | None,
+        target_path: str,
+        source_bucket: str | None,
+        source_path: str | None,
+        sha256: str | None,
+        source_updated_at: str | None,
+        backup_path: str | None,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO asset_deployments (
+                deployment_id, slot, target_path, source_bucket, source_path,
+                sha256, source_updated_at, applied_at, backup_path, status, error
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(deployment_id) DO UPDATE SET
+                slot=excluded.slot,
+                target_path=excluded.target_path,
+                source_bucket=excluded.source_bucket,
+                source_path=excluded.source_path,
+                sha256=excluded.sha256,
+                source_updated_at=excluded.source_updated_at,
+                applied_at=excluded.applied_at,
+                backup_path=excluded.backup_path,
+                status=excluded.status,
+                error=excluded.error
+            """,
+            (
+                deployment_id,
+                slot,
+                target_path,
+                source_bucket,
+                source_path,
+                sha256,
+                source_updated_at,
+                time.time(),
+                backup_path,
+                status,
+                error[:2000] if error else None,
+            ),
+        )
+        self.conn.commit()
+
+    def asset_counts(self) -> dict[str, int]:
+        rows = self.conn.execute(
+            "SELECT status, COUNT(*) AS count FROM asset_deployments GROUP BY status"
+        ).fetchall()
+        return {row["status"]: int(row["count"]) for row in rows}

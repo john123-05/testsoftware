@@ -44,12 +44,31 @@ class SupabaseIngestClient:
     def status(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post_json("liftpic-status", payload)
 
+    def assets(self) -> dict[str, Any]:
+        return self._post_json(
+            "liftpic-assets",
+            {"camera_code": self.settings.camera_code},
+        )
+
     def pair(self, pairing_code: str) -> dict[str, Any]:
         return self._post_json(
             "liftpic-config",
             {"pairing_code": pairing_code.strip().upper()},
             require_token=False,
         )
+
+    def download_signed_url(self, signed_url: str) -> bytes:
+        request = urllib.request.Request(signed_url, method="GET")
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                if response.status >= 400:
+                    raise RuntimeError(f"signed download failed with HTTP {response.status}")
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"signed download HTTP {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"signed download network error: {exc}") from exc
 
     def upload_signed(
         self,

@@ -35,6 +35,37 @@ different park/machine configuration.
 - `C:\liftpic\samuel_neu\PrintCount.txt` was observed with value `237`.
 - Startup included `C:\liftpic\del_pic.bat`, which deletes local JPG queues.
 
+## Overlay/asset findings from 2026-07-15
+
+- Active viewer config is `C:\liftpic\samuel_neu\Settings.xml`.
+- Important local viewer/print targets found:
+  - `C:\liftpic\samuel_neu\diabolos.png` for viewer logo/preview references.
+  - `C:\liftpic\samuel_neu\preview_logo3.png` for default/start photo.
+  - `C:\liftpic\samuel_neu\image1.png` for `SinglePhotoLogoFilename` and
+    `OverlayImageFilename`.
+  - `C:\liftpic\samuel_neu\overlay.png`, `hintergrund.png`, styles folders.
+  - `C:\liftpic\imageloader\Vorlage5.bmp` and `vorlage4.bmp` for old print
+    templates.
+  - `C:\liftpic\jpeg4web\fiebich.png` from old `jpeg4web.ini`.
+- The new asset downsync intentionally does not edit `Settings.xml`; it replaces
+  only approved target files and keeps backups under
+  `C:\liftpic\liftpic-sync\backups\assets`.
+
+## Remote state from 2026-07-15
+
+- Supabase project used for Liftpic staff/backend work:
+  `kvpcwlcfgmsmarjtwpsx`.
+- Edge Functions deployed:
+  - `liftpic-assets`
+  - `admin-liftpic-assets` from dashboard2
+- SQL applied remotely through `supabase db query --linked`:
+  - `0001_liftpic_sync.sql`
+  - `0002_liftpic_machine_configs.sql`
+  - `0003_liftpic_asset_deployments.sql`
+- Verification query confirmed:
+  `liftpic_machine_configs`, `liftpic_asset_deployments`, and private storage
+  bucket `liftpic-assets` exist.
+
 ## Safety rules
 
 - Do not commit `.env`, service role keys, device tokens, customer passwords, or
@@ -59,6 +90,11 @@ different park/machine configuration.
   Liftpic Setup, then paired locally with `liftpic-sync pair --code ...`.
   The pairing endpoint returns only machine config and that machine's device
   token; service role keys must never be placed on the PC.
+- Local logos/overlays are now controlled through dashboard2's Liftpic PCs tab.
+  The dashboard uploads assets to the private `liftpic-assets` bucket and writes
+  `liftpic_asset_deployments`. The PC polls `liftpic-assets`, downloads signed
+  files, validates SHA256 when present, backs up the old local file, then
+  atomically replaces the target.
 - Do not key photo events only by `capture_id`: the camera counter resets
   nightly. Use `event_key = MACHINE_ID + CAMERA_CODE + business date +
   capture_id` for both ride events and sold-photo upload events.

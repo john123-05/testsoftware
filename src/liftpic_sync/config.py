@@ -45,6 +45,10 @@ class Settings:
     ride_count_enabled: bool = True
     ride_count_source: str = "processed,raw"
     ride_rollup_days: int = 14
+    asset_sync_enabled: bool = False
+    asset_sync_seconds: float = 300
+    asset_backup_dir: Path | None = None
+    asset_allowed_roots: tuple[Path, ...] = ()
 
     @classmethod
     def from_env_file(cls, env_path: str | Path | None = None) -> "Settings":
@@ -57,6 +61,17 @@ class Settings:
         qrcode = _get(values, "QRCODE_DIR", r"C:\liftpic\fotos\qrcode").strip()
         statistic_file = _get(values, "STATISTIC_FILE", r"C:\liftpic\samuel_neu\Statistic.txt").strip()
         print_count_file = _get(values, "PRINT_COUNT_FILE", r"C:\liftpic\samuel_neu\PrintCount.txt").strip()
+        asset_backup_dir = _get(values, "ASSET_BACKUP_DIR", str(app_dir / "backups" / "assets")).strip()
+        allowed_roots_raw = _get(
+            values,
+            "ASSET_SYNC_ALLOWED_ROOTS",
+            r"C:\liftpic\samuel_neu;C:\liftpic\imageloader;C:\liftpic\jpeg4web",
+        )
+        allowed_roots = tuple(
+            Path(item.strip())
+            for item in allowed_roots_raw.replace(",", ";").split(";")
+            if item.strip()
+        )
 
         return cls(
             app_name=_get(values, "APP_NAME", "liftpic-sync"),
@@ -91,9 +106,15 @@ class Settings:
             ride_count_enabled=parse_bool(_get(values, "RIDE_COUNT_ENABLED", "true"), True),
             ride_count_source=_get(values, "RIDE_COUNT_SOURCE", "processed,raw").strip().lower(),
             ride_rollup_days=int(_get(values, "RIDE_ROLLUP_DAYS", "14")),
+            asset_sync_enabled=parse_bool(_get(values, "ASSET_SYNC_ENABLED", "false"), False),
+            asset_sync_seconds=float(_get(values, "ASSET_SYNC_SECONDS", "300")),
+            asset_backup_dir=Path(asset_backup_dir) if asset_backup_dir else None,
+            asset_allowed_roots=allowed_roots,
         )
 
     def ensure_dirs(self) -> None:
         self.app_dir.mkdir(parents=True, exist_ok=True)
         self.state_db.parent.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        if self.asset_backup_dir:
+            self.asset_backup_dir.mkdir(parents=True, exist_ok=True)

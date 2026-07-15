@@ -2,6 +2,8 @@
 
 Date inspected: 2026-07-14
 
+Overlay/asset inspection updated: 2026-07-15
+
 ## Observed folder flow
 
 Current capture flow on this PC appears to be:
@@ -66,6 +68,57 @@ The current PC's PhotoViewer settings contain `CustomerNumber=2734`.
 - `C:\liftpic\samuel_neu\Statistic.txt`: sales/print job lines
 - `C:\liftpic\samuel_neu\PrintCount.txt`: remaining paper/print counter, value
   observed as `237`
+
+## Local viewer, overlay and print assets
+
+The active Verkaufsautomat/PhotoViewer config is:
+
+```text
+C:\liftpic\samuel_neu\Settings.xml
+```
+
+Relevant fields observed in that file:
+
+- `LogoFilename`: `c:\liftpic\samuel_neu\diabolos.png`
+- `DefaultPhoto`: `C:\liftpic\samuel_neu\preview_logo3.png`
+- `PreviewLogo`: `c:\liftpic\samuel_neu\diabolos.png`
+- `Split3LogoFilename`: `c:\liftpic\samuel_neu\logo_saalfelden.png`
+- `SinglePhotoLogoFilename`: `C:\liftpic\samuel_neu\image1.png`
+- `OverlayImageFilename`: `C:\liftpic\samuel_neu\image1.png`
+- `ShowOverlayOnPrint`: `true`
+- `ShowOverlayOnUpload`: `0`
+- `QrCodePrintedCopyFolder`: `c:\liftpic\fotos\qrcode`
+
+Files/folders found around the viewer:
+
+- `C:\liftpic\samuel_neu\overlay.png`
+- `C:\liftpic\samuel_neu\image1.png`
+- `C:\liftpic\samuel_neu\hintergrund.png`
+- `C:\liftpic\samuel_neu\Bilderrahmen5.png`
+- `C:\liftpic\samuel_neu\logo.png`, `logo2.png`, `logo4.PNG`
+- `C:\liftpic\samuel_neu\preview_logo.PNG`, `preview_logo22.PNG`
+- `C:\liftpic\samuel_neu\styles\*.png`
+- `C:\liftpic\samuel_neu\styles_4k\*.png`
+
+Legacy print/image loader files:
+
+- `C:\liftpic\imageloader\PrintSettings.ini`
+- `C:\liftpic\imageloader\PrintSettings1.ini`
+- `C:\liftpic\imageloader\PrintSettings2.ini`
+- `C:\liftpic\imageloader\Vorlage*.bmp`
+- `C:\liftpic\imageloader\vorlage4.bmp`
+- `C:\liftpic\imageloader\Vorlage5.bmp`
+- `C:\liftpic\imageloader\overlay_berer.JPG`
+- `C:\liftpic\imageloader\mask.bmp`
+
+Legacy jpeg4web logo config:
+
+- `C:\liftpic\jpeg4web\jpeg4web.ini`
+- `logo_file=c:\Liftpic\jpeg4web\fiebich.png`
+
+The new Liftpic Sync asset downsync does not edit `Settings.xml` yet. It only
+replaces dashboard-approved asset files at explicit target paths, with a local
+backup before overwrite.
 
 ## Important old files
 
