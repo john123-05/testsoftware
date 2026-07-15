@@ -10,11 +10,13 @@ upload target.
 - Storage bucket, for example `test` or `liftpic-photos`
 - SQL migration from `supabase/migrations/0001_liftpic_sync.sql`
 - Edge Functions:
+  - `liftpic-config`
   - `liftpic-ingest-begin`
   - `liftpic-ingest-commit`
   - `liftpic-status`
 
-`liftpic-status` stores both machine health and daily ride rollups in
+`liftpic-config` resolves a Staff Dashboard pairing code into one machine
+configuration and one device token. `liftpic-status` stores both machine health and daily ride rollups in
 `park_photo_ride_daily`. These rollups are small JSON/SQL counters
 (`photos_taken_count`, `photos_sold_count`, conversion, last capture time).
 They are separate from Storage uploads, so unbought JPEGs do not need to be
@@ -31,8 +33,8 @@ LIFTPIC_BUCKET=test
 LIFTPIC_DEVICE_TOKEN=...
 ```
 
-`LIFTPIC_DEVICE_TOKEN` is the shared machine token for the first version. Later
-it can be replaced with per-machine tokens stored in a table.
+`LIFTPIC_DEVICE_TOKEN` remains a compatibility fallback. New installs should
+use per-machine tokens from `liftpic_machine_configs` via `liftpic-config`.
 
 ## PC `.env`
 
@@ -55,6 +57,7 @@ When Supabase CLI is installed:
 ```powershell
 supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
+supabase functions deploy liftpic-config
 supabase functions deploy liftpic-ingest-begin
 supabase functions deploy liftpic-ingest-commit
 supabase functions deploy liftpic-status

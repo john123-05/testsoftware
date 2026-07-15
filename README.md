@@ -5,8 +5,9 @@ It watches local attraction photo folders, matches speed data, keeps a durable
 SQLite upload queue, and uploads photos plus metadata through a Supabase API.
 
 This repository is intentionally generic. Each attraction/client PC should use
-the same code and only change local configuration such as `PARK_SLUG`,
-`PARK_ID`, `CUSTOMER_CODE`, `MACHINE_ID`, folder paths, and `DEVICE_TOKEN`.
+the same code. The preferred setup is now: create the PC/camera in the Staff
+Dashboard Liftpic Setup page, copy the pairing code, and let `liftpic-sync`
+fill local park, camera, folder and token settings.
 
 ## Why this exists
 
@@ -31,8 +32,14 @@ parts into one versioned service.
 2. Clone or download this repository.
 3. Install to `C:\liftpic\liftpic-sync`.
 4. Copy `config\park.example.env` to `.env`.
-5. Edit only attraction-specific values.
-6. Run:
+5. Enter the Supabase project URLs in `.env`.
+6. Pair the PC with the code from the Staff Dashboard:
+
+```powershell
+python -m liftpic_sync.cli --env .env pair --code YOURCODE
+```
+
+7. Run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install_windows_service.ps1

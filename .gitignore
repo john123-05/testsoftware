@@ -21,5 +21,6 @@ logs/
 *.tmp
 .coverage
 htmlcov/
+supabase/.temp/
 .DS_Store
 Thumbs.db

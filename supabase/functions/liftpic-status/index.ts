@@ -3,7 +3,7 @@ import { serviceClient } from "../_shared/supabase.ts";
 
 Deno.serve(async (req) => {
   try {
-    const auth = requireMachineAuth(req);
+    const auth = await requireMachineAuth(req);
     const body = await req.json();
     const supabase = serviceClient();
     const { error } = await supabase.from("machine_status").upsert({
@@ -25,6 +25,15 @@ Deno.serve(async (req) => {
       payload: body,
     }, { onConflict: "machine_id" });
     if (error) throw error;
+
+    await supabase
+      .from("liftpic_machine_configs")
+      .update({
+        last_seen_at: new Date().toISOString(),
+        last_status: body,
+      })
+      .eq("machine_id", auth.machineId)
+      .eq("camera_code", body.camera_code ?? auth.cameraCode ?? "default");
 
     const rideRollups = Array.isArray(body.ride_rollups) ? body.ride_rollups : [];
     if (rideRollups.length > 0) {

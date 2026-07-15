@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.liftpic-status]
 verify_jwt = false
+
+[functions.liftpic-config]
+verify_jwt = false

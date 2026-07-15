@@ -3,7 +3,7 @@ import { serviceClient } from "../_shared/supabase.ts";
 
 Deno.serve(async (req) => {
   try {
-    const auth = requireMachineAuth(req);
+    const auth = await requireMachineAuth(req);
     const body = await req.json();
     const metadata = body.metadata ?? {};
     const bucket = Deno.env.get("LIFTPIC_BUCKET") ?? "test";

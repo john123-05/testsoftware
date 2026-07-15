@@ -44,6 +44,13 @@ class SupabaseIngestClient:
     def status(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post_json("liftpic-status", payload)
 
+    def pair(self, pairing_code: str) -> dict[str, Any]:
+        return self._post_json(
+            "liftpic-config",
+            {"pairing_code": pairing_code.strip().upper()},
+            require_token=False,
+        )
+
     def upload_signed(
         self,
         *,
@@ -86,24 +93,26 @@ class SupabaseIngestClient:
             if response.status >= 400:
                 raise RuntimeError(f"signed upload failed with HTTP {response.status}")
 
-    def _post_json(self, function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_json(self, function_name: str, payload: dict[str, Any], *, require_token: bool = True) -> dict[str, Any]:
         if not self.settings.supabase_functions_url:
             raise RuntimeError("SUPABASE_FUNCTIONS_URL is not configured")
-        if not self.settings.device_token:
+        if require_token and not self.settings.device_token:
             raise RuntimeError("DEVICE_TOKEN is not configured")
 
         url = f"{self.settings.supabase_functions_url}/{function_name}"
         body = json.dumps(payload).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "X-Machine-ID": self.settings.machine_id,
+            "X-Park-ID": self.settings.park_id,
+        }
+        if self.settings.device_token:
+            headers["Authorization"] = f"Bearer {self.settings.device_token}"
         request = urllib.request.Request(
             url,
             data=body,
             method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.settings.device_token}",
-                "X-Machine-ID": self.settings.machine_id,
-                "X-Park-ID": self.settings.park_id,
-            },
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:

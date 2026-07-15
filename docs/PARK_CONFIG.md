@@ -1,11 +1,14 @@
 # Park Configuration
 
 Each attraction/client PC should use the same code and a different `.env`.
+For new installs, prefer pairing from the Staff Dashboard instead of typing all
+values by hand:
 
 Start from:
 
 ```powershell
 copy config\park.example.env .env
+python -m liftpic_sync.cli --env .env pair --code YOURCODE
 ```
 
 ## Required values
@@ -18,6 +21,11 @@ copy config\park.example.env .env
   `cam1` or `plosebob-main`
 - `DEVICE_TOKEN`: secret token issued for this machine
 - `SUPABASE_FUNCTIONS_URL`: project functions URL
+
+When pairing succeeds, `PARK_SLUG`, `PARK_ID`, `CUSTOMER_CODE`, `MACHINE_ID`,
+`CAMERA_CODE`, `DEVICE_TOKEN`, folder paths and mode flags are written into
+`.env` automatically. Manual editing should normally be limited to Supabase
+project URLs or special local folder paths.
 
 ## Folder values
 

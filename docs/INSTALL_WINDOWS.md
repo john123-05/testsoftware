@@ -15,8 +15,14 @@ cd C:\liftpic\liftpic-sync
 python -m pip install -e .
 copy config\park.example.env .env
 notepad .env
+python -m liftpic_sync.cli --env .env pair --code YOURCODE
 powershell -ExecutionPolicy Bypass -File scripts\install_windows_service.ps1
 ```
+
+`YOURCODE` comes from the Staff Dashboard under Liftpic Setup. On a normal new
+PC, only `SUPABASE_FUNCTIONS_URL`, `SUPABASE_URL`, and `SUPABASE_ANON_KEY` have
+to be entered before pairing. Park, camera, customer code, folder paths and
+device token are written by the pairing command.
 
 ## Run once for testing
 

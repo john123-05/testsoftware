@@ -55,6 +55,10 @@ different park/machine configuration.
   `fotos\out`/`fotos`, stores de-duplicated ride events in SQLite, and sends
   daily counters through `liftpic-status`. Only sold QR-code images from
   `fotos\qrcode` are staged/uploaded as JPEGs.
+- Staff Dashboard owns the intended config UI. New PCs should be created in
+  Liftpic Setup, then paired locally with `liftpic-sync pair --code ...`.
+  The pairing endpoint returns only machine config and that machine's device
+  token; service role keys must never be placed on the PC.
 - Do not key photo events only by `capture_id`: the camera counter resets
   nightly. Use `event_key = MACHINE_ID + CAMERA_CODE + business date +
   capture_id` for both ride events and sold-photo upload events.
