@@ -30,22 +30,18 @@ parts into one versioned service.
 
 ## First install on a Windows attraction PC
 
-1. Install Python 3.11 or newer.
-2. Clone or download this repository.
-3. Install to `C:\liftpic\liftpic-sync`.
-4. Copy `config\park.example.env` to `.env`.
-5. Enter the Supabase project URLs in `.env`.
-6. Pair the PC with the code from the Staff Dashboard:
+Normal install is now one PowerShell file:
 
 ```powershell
-python -m liftpic_sync.cli --env .env pair --code YOURCODE
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\Downloads\install_liftpic_sync_bootstrap.ps1" -PairingCode YOURCODE
 ```
 
-7. Run:
+`YOURCODE` comes from `Kunden Management -> Liftpic PCs` in the Staff Dashboard.
+The installer downloads this repository, installs it to
+`C:\liftpic\liftpic-sync`, creates `.env`, pairs the PC, and starts the
+scheduled task `LiftpicSync`.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install_windows_service.ps1
-```
+Manual/source install is documented in `docs/INSTALL_WINDOWS.md`.
 
 For development:
 

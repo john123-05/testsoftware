@@ -90,6 +90,11 @@ different park/machine configuration.
   Liftpic Setup, then paired locally with `liftpic-sync pair --code ...`.
   The pairing endpoint returns only machine config and that machine's device
   token; service role keys must never be placed on the PC.
+- Normal customer PC install should use
+  `scripts/install_liftpic_sync_bootstrap.ps1`, downloaded from the Staff
+  Dashboard. It installs to `C:\liftpic\liftpic-sync`, creates `.env` with
+  public Supabase URL/anon key, asks for or accepts a pairing code, then starts
+  the scheduled task `LiftpicSync`.
 - Local logos/overlays are now controlled through dashboard2's Liftpic PCs tab.
   The dashboard uploads assets to the private `liftpic-assets` bucket and writes
   `liftpic_asset_deployments`. The PC polls `liftpic-assets`, downloads signed
