@@ -120,12 +120,10 @@ class LiftpicService:
         payload = self.health()
         payload["queue_count"] = counts.get("queued", 0) + counts.get("retry", 0)
 
-        if self.settings.shadow_mode:
-            log.info("shadow heartbeat: %s", payload)
-            return
-
         try:
             self.client.status(payload)
+            if self.settings.shadow_mode:
+                log.info("shadow heartbeat sent: %s", payload)
         except Exception as exc:
             log.warning("heartbeat failed: %s", exc)
 
