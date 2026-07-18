@@ -1,5 +1,9 @@
 # Liftpic Sync
 
+New here (human or LLM)? Read `docs/ECOSYSTEM.md` first for the full
+Liftpictures system map, then `docs/PC_SETUP_CHECKLIST.md` for the
+hardware/Windows field knowledge this repo builds on.
+
 Liftpic Sync is the new shared software base for Liftpictures photo systems.
 It watches local attraction photo folders, matches speed data, keeps a durable
 SQLite upload queue, and uploads photos plus metadata through a Supabase API.

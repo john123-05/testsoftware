@@ -2,6 +2,13 @@
 
 This file is for Codex, other LLM agents, and future maintainers.
 
+**Start with `docs/ECOSYSTEM.md`** - it maps the whole Liftpictures
+landscape (all repos, both Supabase projects, customers, the claim-code
+incident history) so you have full context before touching anything.
+`docs/PC_SETUP_CHECKLIST.md` holds Tom's field-install knowledge
+(BIOS/AnyDesk/.NET/drivers/payment terminal) that this repo deliberately
+does not automate.
+
 ## Current mission
 
 Build a reliable repo-based replacement for the ad hoc Liftpictures uploader
