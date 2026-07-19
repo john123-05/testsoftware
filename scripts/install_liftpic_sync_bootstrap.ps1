@@ -43,7 +43,22 @@ function Ensure-Python {
   throw "Python konnte nicht automatisch installiert werden. Bitte Python 3.11 oder neuer installieren und diese Datei danach erneut starten."
 }
 
-function Write-BaseEnv {
+function Get-EnvKeys {
+  param([string]$EnvPath)
+
+  $keys = New-Object System.Collections.Generic.HashSet[string]
+  if (Test-Path $EnvPath) {
+    foreach ($line in Get-Content -Path $EnvPath) {
+      $trimmed = $line.Trim()
+      if (-not $trimmed -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) { continue }
+      $key = $trimmed.Split("=", 2)[0].Trim()
+      if ($key) { [void]$keys.Add($key) }
+    }
+  }
+  return $keys
+}
+
+function Ensure-BaseEnv {
   param(
     [string]$EnvPath,
     [string]$BaseUrl,
@@ -51,57 +66,66 @@ function Write-BaseEnv {
   )
 
   $functionsUrl = "$BaseUrl/functions/v1"
-  $content = @"
-APP_NAME=liftpic-sync
-SHADOW_MODE=true
+  $defaults = [ordered]@{
+    APP_NAME                      = "liftpic-sync"
+    SHADOW_MODE                   = "true"
+    PARK_SLUG                     = "unknown-park"
+    PARK_ID                       = ""
+    CUSTOMER_CODE                 = "0000"
+    MACHINE_ID                    = "unpaired-pc"
+    CAMERA_CODE                   = "default"
+    DEVICE_TOKEN                  = ""
+    SUPABASE_FUNCTIONS_URL        = $functionsUrl
+    SUPABASE_URL                  = $BaseUrl
+    SUPABASE_ANON_KEY             = $AnonKey
+    RAW_DIR                       = "C:\liftpic\fotos"
+    PROCESSED_DIR                 = "C:\liftpic\fotos\out"
+    WEBOUT_DIR                    = "C:\liftpic\fotos\webout"
+    QRCODE_DIR                    = "C:\liftpic\fotos\qrcode"
+    UPLOAD_SOURCE                 = "qrcode"
+    STAGE_IN_SHADOW               = "false"
+    STATISTIC_FILE                = "C:\liftpic\samuel_neu\Statistic.txt"
+    PRINT_COUNT_FILE              = "C:\liftpic\samuel_neu\PrintCount.txt"
+    APP_DIR                       = "C:\liftpic\liftpic-sync"
+    STATE_DB                      = "C:\liftpic\liftpic-sync\state\liftpic-sync.db"
+    LOG_DIR                       = "C:\liftpic\liftpic-sync\logs"
+    POLL_SECONDS                  = "2"
+    FILE_STABLE_SECONDS           = "2"
+    SPEED_MATCH_SECONDS           = "12"
+    SPEED_TIMEOUT_SECONDS         = "30"
+    UPLOAD_RETRY_SECONDS          = "15"
+    HEARTBEAT_SECONDS             = "60"
+    ARCHIVE_RAW                   = "false"
+    RIDE_COUNT_ENABLED            = "true"
+    RIDE_COUNT_SOURCE             = "processed,raw"
+    RIDE_ROLLUP_DAYS              = "14"
+    ASSET_SYNC_ENABLED            = "false"
+    ASSET_SYNC_SECONDS            = "300"
+    ASSET_BACKUP_DIR              = "C:\liftpic\liftpic-sync\backups\assets"
+    ASSET_SYNC_ALLOWED_ROOTS      = "C:\liftpic\samuel_neu;C:\liftpic\imageloader;C:\liftpic\jpeg4web"
+    OPERATIONAL_LOG_GLOBS         = "C:\liftpic\imageloader\*.txt;C:\liftpic\imageloader\*.log;C:\liftpic\kosel\*.log;C:\liftpic\CAMware\log\*.txt;C:\liftpic\CAMware\*.log;C:\liftpic\3GerTis\*.log"
+    OPERATIONAL_LOG_TAIL_LINES    = "80"
+    OPERATIONAL_LOG_STALE_MINUTES = "240"
+  }
 
-PARK_SLUG=unknown-park
-PARK_ID=
-CUSTOMER_CODE=0000
-MACHINE_ID=unpaired-pc
-CAMERA_CODE=default
-DEVICE_TOKEN=
+  if (-not (Test-Path $EnvPath)) {
+    Write-Host "Erstelle neue .env mit Grundeinstellungen..."
+    $lines = foreach ($key in $defaults.Keys) { "$key=$($defaults[$key])" }
+    New-Item -ItemType Directory -Force -Path (Split-Path $EnvPath -Parent) | Out-Null
+    Set-Content -Path $EnvPath -Value $lines -Encoding ASCII
+    return
+  }
 
-SUPABASE_FUNCTIONS_URL=$functionsUrl
-SUPABASE_URL=$BaseUrl
-SUPABASE_ANON_KEY=$AnonKey
+  $existingKeys = Get-EnvKeys -EnvPath $EnvPath
+  $missing = @($defaults.Keys | Where-Object { -not $existingKeys.Contains($_) })
+  if ($missing.Count -eq 0) {
+    Write-Host "Bestehende .env ist vollstaendig, bleibt erhalten."
+    return
+  }
 
-RAW_DIR=C:\liftpic\fotos
-PROCESSED_DIR=C:\liftpic\fotos\out
-WEBOUT_DIR=C:\liftpic\fotos\webout
-QRCODE_DIR=C:\liftpic\fotos\qrcode
-UPLOAD_SOURCE=qrcode
-STAGE_IN_SHADOW=false
-STATISTIC_FILE=C:\liftpic\samuel_neu\Statistic.txt
-PRINT_COUNT_FILE=C:\liftpic\samuel_neu\PrintCount.txt
-
-APP_DIR=C:\liftpic\liftpic-sync
-STATE_DB=C:\liftpic\liftpic-sync\state\liftpic-sync.db
-LOG_DIR=C:\liftpic\liftpic-sync\logs
-
-POLL_SECONDS=2
-FILE_STABLE_SECONDS=2
-SPEED_MATCH_SECONDS=12
-SPEED_TIMEOUT_SECONDS=30
-UPLOAD_RETRY_SECONDS=15
-HEARTBEAT_SECONDS=60
-ARCHIVE_RAW=false
-
-RIDE_COUNT_ENABLED=true
-RIDE_COUNT_SOURCE=processed,raw
-RIDE_ROLLUP_DAYS=14
-
-ASSET_SYNC_ENABLED=false
-ASSET_SYNC_SECONDS=300
-ASSET_BACKUP_DIR=C:\liftpic\liftpic-sync\backups\assets
-ASSET_SYNC_ALLOWED_ROOTS=C:\liftpic\samuel_neu;C:\liftpic\imageloader;C:\liftpic\jpeg4web
-
-OPERATIONAL_LOG_GLOBS=C:\liftpic\imageloader\*.txt;C:\liftpic\imageloader\*.log;C:\liftpic\kosel\*.log;C:\liftpic\CAMware\log\*.txt;C:\liftpic\CAMware\*.log;C:\liftpic\3GerTis\*.log
-OPERATIONAL_LOG_TAIL_LINES=80
-OPERATIONAL_LOG_STALE_MINUTES=240
-"@
-
-  Set-Content -Path $EnvPath -Value $content -Encoding ASCII
+  Write-Host "Bestehende .env ist unvollstaendig. Ergaenze fehlende Werte: $($missing -join ', ')"
+  $appendLines = foreach ($key in $missing) { "$key=$($defaults[$key])" }
+  Add-Content -Path $EnvPath -Value $appendLines -Encoding ASCII
 }
 
 function Install-ScheduledTask {
@@ -165,12 +189,8 @@ Write-Host "4/6 Installiere Liftpic Sync lokal..."
 & $VenvPython -m pip install --upgrade pip
 & $VenvPython -m pip install -e $InstallDir
 
-if (-not (Test-Path $EnvPath)) {
-  Write-Host "5/6 Erstelle Grundeinstellungen..."
-  Write-BaseEnv -EnvPath $EnvPath -BaseUrl $SupabaseUrl -AnonKey $SupabaseAnonKey
-} else {
-  Write-Host "5/6 Bestehende .env bleibt erhalten."
-}
+Write-Host "5/6 Pruefe Grundeinstellungen..."
+Ensure-BaseEnv -EnvPath $EnvPath -BaseUrl $SupabaseUrl -AnonKey $SupabaseAnonKey
 
 if (-not $PairingCode) {
   $PairingCode = Read-Host "Pairing-Code aus Kunden Management eingeben"
@@ -182,6 +202,9 @@ if (-not $PairingCode) {
 
 Write-Host "Kopple diesen PC mit dem Dashboard..."
 & $VenvPython -m liftpic_sync.cli --env $EnvPath pair --code $PairingCode
+if ($LASTEXITCODE -ne 0) {
+  throw "Pairing fehlgeschlagen (Exit-Code $LASTEXITCODE). Siehe Fehlermeldung oben. Haeufige Ursachen: Pairing-Code falsch/abgelaufen (im Dashboard neuen Code erzeugen) oder kein Internetzugang. Die Aufgabe LiftpicSync wurde NICHT gestartet."
+}
 
 Write-Host "6/6 Richte Autostart ein..."
 Install-ScheduledTask -TaskName "LiftpicSync" -PythonPath $VenvPython -EnvPath $EnvPath -WorkingDir $InstallDir
