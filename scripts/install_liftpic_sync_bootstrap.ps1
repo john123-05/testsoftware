@@ -200,10 +200,35 @@ if (-not $PairingCode) {
   throw "Kein Pairing-Code eingegeben. Installation abgebrochen, ohne Task zu starten."
 }
 
+Write-Host "Pruefe Erreichbarkeit von $SupabaseUrl ..."
+try {
+  Invoke-WebRequest -Uri $SupabaseUrl -Method Head -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop | Out-Null
+} catch {
+  if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+    Write-Host "  Erreichbar (HTTP $([int]$_.Exception.Response.StatusCode))." -ForegroundColor DarkGray
+  } else {
+    Write-Host "  WARNUNG: $SupabaseUrl ist von diesem PC aus nicht erreichbar. Pruefe Internetverbindung/Firewall/Proxy." -ForegroundColor Yellow
+    Write-Host "  Fehler: $($_.Exception.Message)" -ForegroundColor Yellow
+  }
+}
+
 Write-Host "Kopple diesen PC mit dem Dashboard..."
-& $VenvPython -m liftpic_sync.cli --env $EnvPath pair --code $PairingCode
-if ($LASTEXITCODE -ne 0) {
-  throw "Pairing fehlgeschlagen (Exit-Code $LASTEXITCODE). Siehe Fehlermeldung oben. Haeufige Ursachen: Pairing-Code falsch/abgelaufen (im Dashboard neuen Code erzeugen) oder kein Internetzugang. Die Aufgabe LiftpicSync wurde NICHT gestartet."
+$PairAttempts = 3
+$Paired = $false
+for ($attempt = 1; $attempt -le $PairAttempts; $attempt++) {
+  & $VenvPython -m liftpic_sync.cli --env $EnvPath pair --code $PairingCode
+  if ($LASTEXITCODE -eq 0) {
+    $Paired = $true
+    break
+  }
+  if ($attempt -lt $PairAttempts) {
+    Write-Host "Pairing-Versuch $attempt von $PairAttempts fehlgeschlagen. Neuer Versuch in 5 Sekunden..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+  }
+}
+
+if (-not $Paired) {
+  throw "Pairing fehlgeschlagen nach $PairAttempts Versuchen (letzter Exit-Code $LASTEXITCODE). Siehe Fehlermeldung(en) oben. Haeufige Ursachen: Pairing-Code falsch/abgelaufen (im Dashboard neuen Code erzeugen), kein Internetzugang, oder eine Firewall/ein Proxy blockiert $SupabaseUrl. Die Aufgabe LiftpicSync wurde NICHT gestartet."
 }
 
 Write-Host "6/6 Richte Autostart ein..."
