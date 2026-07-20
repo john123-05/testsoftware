@@ -8,7 +8,10 @@ from .envfile import load_env_file, parse_bool
 
 
 def _get(values: dict[str, str], key: str, default: str = "") -> str:
-    return os.environ.get(key, values.get(key, default))
+    env_value = os.environ.get(key)
+    if env_value:
+        return env_value
+    return values.get(key, default)
 
 
 @dataclass(frozen=True)
