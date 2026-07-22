@@ -8,43 +8,9 @@ from .asset_sync import AssetSyncWorker
 from .config import Settings
 from .envfile import write_env_values
 from .logging_setup import configure_logging
+from .remote_config import config_to_env
 from .service import LiftpicService
 from .supabase_client import SupabaseIngestClient
-
-
-def _bool_env(value: object) -> str:
-    return "true" if bool(value) else "false"
-
-
-def _config_to_env(config: dict[str, object], device_token: str) -> dict[str, str]:
-    mode = str(config.get("mode") or "sold_only")
-    upload_source = "qrcode"
-    if mode == "all_photos":
-        upload_source = "processed"
-    if mode == "count_only":
-        upload_source = "processed"
-
-    shadow_mode = bool(config.get("shadow_mode"))
-    if mode == "count_only":
-        shadow_mode = True
-
-    return {
-        "PARK_SLUG": str(config.get("park_slug") or "unknown-park"),
-        "PARK_ID": str(config.get("park_id") or ""),
-        "CUSTOMER_CODE": str(config.get("legacy_customer_code") or "0000"),
-        "MACHINE_ID": str(config.get("machine_id") or "unknown-machine"),
-        "CAMERA_CODE": str(config.get("camera_code") or "default"),
-        "DEVICE_TOKEN": device_token,
-        "SHADOW_MODE": _bool_env(shadow_mode),
-        "RAW_DIR": str(config.get("raw_dir") or r"C:\liftpic\fotos"),
-        "PROCESSED_DIR": str(config.get("processed_dir") or r"C:\liftpic\fotos\out"),
-        "WEBOUT_DIR": str(config.get("webout_dir") or r"C:\liftpic\fotos\webout"),
-        "QRCODE_DIR": str(config.get("qrcode_dir") or r"C:\liftpic\fotos\qrcode"),
-        "STATISTIC_FILE": str(config.get("statistic_file") or r"C:\liftpic\samuel_neu\Statistic.txt"),
-        "PRINT_COUNT_FILE": str(config.get("print_count_file") or r"C:\liftpic\samuel_neu\PrintCount.txt"),
-        "UPLOAD_SOURCE": upload_source,
-        "RIDE_COUNT_ENABLED": _bool_env(config.get("count_rides_enabled") is not False),
-    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -74,11 +40,11 @@ def main(argv: list[str] | None = None) -> int:
         device_token = str(response.get("device_token") or "")
         if not isinstance(config, dict) or not device_token:
             raise RuntimeError("pairing response did not include config and device_token")
-        write_env_values(args.env, _config_to_env(config, device_token))
+        write_env_values(args.env, config_to_env(config, device_token))
         print(json.dumps({"ok": True, "machine_id": config.get("machine_id"), "camera_code": config.get("camera_code")}, indent=2))
         return 0
 
-    service = LiftpicService(settings)
+    service = LiftpicService(settings, env_path=args.env)
     try:
         if args.command == "run":
             service.run_forever()

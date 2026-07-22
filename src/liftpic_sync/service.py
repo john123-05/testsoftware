@@ -7,7 +7,9 @@ from datetime import datetime
 
 from .asset_sync import AssetSyncWorker
 from .config import Settings
+from .envfile import load_env_file, write_env_values
 from .operational_monitor import read_operational_status
+from .remote_config import config_to_env
 from .ride_tracker import RideTracker
 from .scanner import FolderScanner
 from .state import StateStore
@@ -20,17 +22,22 @@ log = logging.getLogger(__name__)
 
 
 class LiftpicService:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, env_path: str | None = None):
         self.settings = settings
+        self.env_path = env_path
         self.settings.ensure_dirs()
         self.store = StateStore(settings.state_db)
-        self.ride_tracker = RideTracker(settings, self.store)
-        self.scanner = FolderScanner(settings, self.store)
-        self.uploader = UploadWorker(settings, self.store)
-        self.asset_sync = AssetSyncWorker(settings, self.store)
-        self.client = SupabaseIngestClient(settings)
+        self._build_workers()
         self._last_heartbeat = 0.0
         self._last_asset_sync = 0.0
+        self._last_config_refresh = 0.0
+
+    def _build_workers(self) -> None:
+        self.ride_tracker = RideTracker(self.settings, self.store)
+        self.scanner = FolderScanner(self.settings, self.store)
+        self.uploader = UploadWorker(self.settings, self.store)
+        self.asset_sync = AssetSyncWorker(self.settings, self.store)
+        self.client = SupabaseIngestClient(self.settings)
 
     def close(self) -> None:
         self.store.close()
@@ -38,8 +45,54 @@ class LiftpicService:
     def run_forever(self) -> None:
         log.info("starting %s for park=%s machine=%s shadow=%s", self.settings.app_name, self.settings.park_slug, self.settings.machine_id, self.settings.shadow_mode)
         while True:
+            self._refresh_config_if_due()
             self.run_once()
             time.sleep(self.settings.poll_seconds)
+
+    def _refresh_config_if_due(self) -> None:
+        """Pull the dashboard config and apply changes live (shadow mode, upload
+        mode, folder paths, ...) so edits in the Staff Dashboard reach a running
+        PC without re-running the installer or re-pairing."""
+        if not self.env_path or self.settings.config_refresh_seconds <= 0:
+            return
+        if not self.settings.device_token:
+            return
+        now = time.time()
+        if now - self._last_config_refresh < self.settings.config_refresh_seconds:
+            return
+        self._last_config_refresh = now
+
+        try:
+            response = self.client.fetch_config()
+        except Exception as exc:
+            log.warning("config refresh failed: %s", exc)
+            return
+
+        config = response.get("config")
+        if not isinstance(config, dict):
+            return
+        device_token = str(response.get("device_token") or self.settings.device_token)
+        desired = config_to_env(config, device_token)
+
+        current = load_env_file(self.env_path)
+        changed = {key: value for key, value in desired.items() if current.get(key) != value}
+        if not changed:
+            return
+
+        log.info("applying dashboard config changes: %s", ", ".join(sorted(changed)))
+        write_env_values(self.env_path, desired)
+        new_settings = Settings.from_env_file(self.env_path)
+        self._apply_settings(new_settings)
+
+    def _apply_settings(self, new_settings: Settings) -> None:
+        was_shadow = self.settings.shadow_mode
+        self.settings = new_settings
+        self.settings.ensure_dirs()
+        self._build_workers()
+        if was_shadow and not new_settings.shadow_mode:
+            released = self.store.requeue_shadowed()
+            if released:
+                log.info("shadow mode turned off: re-queued %s held photos for upload", released)
 
     def run_once(self) -> dict[str, object]:
         ride_result = self.ride_tracker.scan_once()

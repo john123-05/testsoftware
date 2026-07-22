@@ -349,6 +349,26 @@ class StateStore:
         )
         self.conn.commit()
 
+    def requeue_shadowed(self) -> int:
+        """Release photos that were held while shadow mode was on so they upload.
+
+        Called when shadow mode is switched off at runtime. Returns the number
+        of events moved back into the upload queue.
+        """
+        cursor = self.conn.execute(
+            """
+            UPDATE photo_events
+            SET upload_status='queued',
+                retry_after=0,
+                error=NULL,
+                updated_at=?
+            WHERE upload_status='shadowed'
+            """,
+            (time.time(),),
+        )
+        self.conn.commit()
+        return int(cursor.rowcount or 0)
+
     def mark_retry(self, event_key: str, error: str, retry_after: float) -> None:
         self.conn.execute(
             """

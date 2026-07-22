@@ -57,6 +57,14 @@ class SupabaseIngestClient:
             require_token=False,
         )
 
+    def fetch_config(self) -> dict[str, Any]:
+        """Pull the current dashboard config for this already-paired machine.
+
+        Uses device-token auth (no pairing code), so a running PC can pick up
+        dashboard changes without re-pairing.
+        """
+        return self._post_json("liftpic-config", {})
+
     def download_signed_url(self, signed_url: str) -> bytes:
         request = urllib.request.Request(signed_url, method="GET")
         try:

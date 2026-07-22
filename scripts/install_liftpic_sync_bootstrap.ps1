@@ -95,6 +95,7 @@ function Ensure-BaseEnv {
     SPEED_TIMEOUT_SECONDS         = "30"
     UPLOAD_RETRY_SECONDS          = "15"
     HEARTBEAT_SECONDS             = "60"
+    CONFIG_REFRESH_SECONDS        = "120"
     ARCHIVE_RAW                   = "false"
     RIDE_COUNT_ENABLED            = "true"
     RIDE_COUNT_SOURCE             = "processed,raw"
