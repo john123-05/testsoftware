@@ -58,6 +58,32 @@ function Get-EnvKeys {
   return $keys
 }
 
+function Set-EnvValue {
+  param(
+    [string]$EnvPath,
+    [string]$Key,
+    [string]$Value
+  )
+
+  $existing = @()
+  if (Test-Path $EnvPath) { $existing = @(Get-Content -Path $EnvPath) }
+
+  $pattern = "^\s*$([regex]::Escape($Key))\s*="
+  $replaced = $false
+  $output = foreach ($line in $existing) {
+    if ($line -match $pattern) {
+      $replaced = $true
+      "$Key=$Value"
+    } else {
+      $line
+    }
+  }
+  if (-not $replaced) { $output = @($output) + "$Key=$Value" }
+
+  New-Item -ItemType Directory -Force -Path (Split-Path $EnvPath -Parent) | Out-Null
+  Set-Content -Path $EnvPath -Value $output -Encoding ASCII
+}
+
 function Ensure-BaseEnv {
   param(
     [string]$EnvPath,
@@ -114,19 +140,28 @@ function Ensure-BaseEnv {
     $lines = foreach ($key in $defaults.Keys) { "$key=$($defaults[$key])" }
     New-Item -ItemType Directory -Force -Path (Split-Path $EnvPath -Parent) | Out-Null
     Set-Content -Path $EnvPath -Value $lines -Encoding ASCII
-    return
+  }
+  else {
+    $existingKeys = Get-EnvKeys -EnvPath $EnvPath
+    $missing = @($defaults.Keys | Where-Object { -not $existingKeys.Contains($_) })
+    if ($missing.Count -eq 0) {
+      Write-Host "Bestehende .env vorhanden, ergaenze fehlende Werte falls noetig."
+    } else {
+      Write-Host "Bestehende .env ist unvollstaendig. Ergaenze fehlende Werte: $($missing -join ', ')"
+      $appendLines = foreach ($key in $missing) { "$key=$($defaults[$key])" }
+      Add-Content -Path $EnvPath -Value $appendLines -Encoding ASCII
+    }
   }
 
-  $existingKeys = Get-EnvKeys -EnvPath $EnvPath
-  $missing = @($defaults.Keys | Where-Object { -not $existingKeys.Contains($_) })
-  if ($missing.Count -eq 0) {
-    Write-Host "Bestehende .env ist vollstaendig, bleibt erhalten."
-    return
-  }
-
-  Write-Host "Bestehende .env ist unvollstaendig. Ergaenze fehlende Werte: $($missing -join ', ')"
-  $appendLines = foreach ($key in $missing) { "$key=$($defaults[$key])" }
-  Add-Content -Path $EnvPath -Value $appendLines -Encoding ASCII
+  # Always (re)write the fixed Supabase infrastructure values, even when a stale
+  # .env already contains these keys with an empty or outdated value. Without
+  # this, a broken .env (e.g. an empty "SUPABASE_FUNCTIONS_URL=") survives a
+  # re-install - the completeness check only tests whether a key exists, not
+  # whether it has a value - and pairing fails with
+  # "SUPABASE_FUNCTIONS_URL is not configured".
+  Set-EnvValue -EnvPath $EnvPath -Key "SUPABASE_URL" -Value $BaseUrl
+  Set-EnvValue -EnvPath $EnvPath -Key "SUPABASE_FUNCTIONS_URL" -Value $functionsUrl
+  Set-EnvValue -EnvPath $EnvPath -Key "SUPABASE_ANON_KEY" -Value $AnonKey
 }
 
 function Install-ScheduledTask {
