@@ -491,6 +491,16 @@ class StateStore:
         ).fetchall()
         return {row["business_date"]: int(row["count"]) for row in rows}
 
+    def rides_total(self) -> int:
+        """Total rides (photos taken) counted across all days on this machine."""
+        row = self.conn.execute("SELECT COUNT(*) AS count FROM ride_events").fetchone()
+        return int(row["count"]) if row else 0
+
+    def photos_sold_total(self) -> int:
+        """Total sold photos ever seen by this machine (queued/uploaded/shadowed)."""
+        row = self.conn.execute("SELECT COUNT(*) AS count FROM photo_events").fetchone()
+        return int(row["count"]) if row else 0
+
     def asset_is_current(
         self,
         *,

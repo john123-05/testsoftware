@@ -39,4 +39,6 @@ def config_to_env(config: dict[str, object], device_token: str) -> dict[str, str
         "PRINT_COUNT_FILE": str(config.get("print_count_file") or r"C:\liftpic\samuel_neu\PrintCount.txt"),
         "UPLOAD_SOURCE": upload_source,
         "RIDE_COUNT_ENABLED": _bool_env(config.get("count_rides_enabled") is not False),
+        "PAPER_CAPACITY": str(int(config.get("paper_capacity") or 0)),
+        "PAPER_WARN_REMAINING": str(int(config.get("paper_warn_remaining") or 20)),
     }

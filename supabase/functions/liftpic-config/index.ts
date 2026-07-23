@@ -23,6 +23,7 @@ type ConfigRow = {
   statistic_file: string;
   print_count_file: string;
   paper_warn_remaining: number;
+  paper_capacity: number;
   pairing_status: string;
   device_token: string;
   parks?: { slug?: string; name?: string } | null;
@@ -56,6 +57,7 @@ function publicConfig(row: ConfigRow) {
     statistic_file: row.statistic_file,
     print_count_file: row.print_count_file,
     paper_warn_remaining: row.paper_warn_remaining,
+    paper_capacity: row.paper_capacity,
   };
 }
 

@@ -46,6 +46,8 @@ class Settings:
     archive_raw: bool
     camera_code: str = "default"
     config_refresh_seconds: float = 120
+    paper_capacity: int = 0
+    paper_warn_remaining: int = 20
     ride_count_enabled: bool = True
     ride_count_source: str = "processed,raw"
     ride_rollup_days: int = 14
@@ -123,6 +125,8 @@ class Settings:
             upload_retry_seconds=float(_get(values, "UPLOAD_RETRY_SECONDS", "15")),
             heartbeat_seconds=float(_get(values, "HEARTBEAT_SECONDS", "60")),
             config_refresh_seconds=float(_get(values, "CONFIG_REFRESH_SECONDS", "120")),
+            paper_capacity=int(_get(values, "PAPER_CAPACITY", "0") or "0"),
+            paper_warn_remaining=int(_get(values, "PAPER_WARN_REMAINING", "20") or "20"),
             archive_raw=parse_bool(_get(values, "ARCHIVE_RAW", "false"), False),
             camera_code=_get(values, "CAMERA_CODE", _get(values, "MACHINE_ID", "default")).strip() or "default",
             ride_count_enabled=parse_bool(_get(values, "RIDE_COUNT_ENABLED", "true"), True),

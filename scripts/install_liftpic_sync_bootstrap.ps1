@@ -112,6 +112,8 @@ function Ensure-BaseEnv {
     STAGE_IN_SHADOW               = "false"
     STATISTIC_FILE                = "C:\liftpic\samuel_neu\Statistic.txt"
     PRINT_COUNT_FILE              = "C:\liftpic\samuel_neu\PrintCount.txt"
+    PAPER_CAPACITY                = "0"
+    PAPER_WARN_REMAINING          = "20"
     APP_DIR                       = "C:\liftpic\liftpic-sync"
     STATE_DB                      = "C:\liftpic\liftpic-sync\state\liftpic-sync.db"
     LOG_DIR                       = "C:\liftpic\liftpic-sync\logs"

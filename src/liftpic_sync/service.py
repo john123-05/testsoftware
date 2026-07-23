@@ -130,7 +130,12 @@ class LiftpicService:
 
     def health(self) -> dict[str, object]:
         usage = shutil.disk_usage(self.settings.app_dir.anchor or ".")
-        local_status = read_local_status(self.settings.statistic_file, self.settings.print_count_file)
+        local_status = read_local_status(
+            self.settings.statistic_file,
+            self.settings.print_count_file,
+            paper_capacity=self.settings.paper_capacity,
+            paper_warn_remaining=self.settings.paper_warn_remaining,
+        )
         operational_status = read_operational_status(self.settings)
         ride_rollups = self.store.ride_rollups(
             park_id=self.settings.park_id,
@@ -143,6 +148,8 @@ class LiftpicService:
         today_rollups = [item for item in ride_rollups if item.get("business_date") == today]
         photos_taken_today = sum(int(item.get("photos_taken_count") or 0) for item in today_rollups)
         photos_sold_today = sum(int(item.get("photos_sold_count") or 0) for item in today_rollups)
+        rides_total = self.store.rides_total()
+        photos_sold_total = self.store.photos_sold_total()
         return {
             "app_name": self.settings.app_name,
             "park_slug": self.settings.park_slug,
@@ -165,10 +172,15 @@ class LiftpicService:
             "photos_taken_today": photos_taken_today,
             "photos_sold_today": photos_sold_today,
             "photo_conversion_today": round(photos_sold_today / photos_taken_today, 4) if photos_taken_today else None,
+            "rides_total": rides_total,
+            "photos_sold_total": photos_sold_total,
+            "photo_conversion_total": round(photos_sold_total / rides_total, 4) if rides_total else None,
             "disk_free_mb": int(usage.free / 1024 / 1024),
             "camera_status": operational_status.camera_status,
+            "paper_printed": local_status.paper_printed,
+            "paper_capacity": local_status.paper_capacity,
             "paper_remaining": local_status.paper_remaining,
-            "paper_status": operational_status.printer_status or local_status.paper_status,
+            "paper_status": local_status.paper_status,
             "statistic_file_size": local_status.statistic_file_size,
             "statistic_last_line": local_status.statistic_last_line,
         }
