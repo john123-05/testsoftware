@@ -135,6 +135,7 @@ function Ensure-BaseEnv {
     OPERATIONAL_LOG_GLOBS         = "C:\liftpic\imageloader\*.txt;C:\liftpic\imageloader\*.log;C:\liftpic\kosel\*.log;C:\liftpic\CAMware\log\*.txt;C:\liftpic\CAMware\*.log;C:\liftpic\3GerTis\*.log"
     OPERATIONAL_LOG_TAIL_LINES    = "80"
     OPERATIONAL_LOG_STALE_MINUTES = "240"
+    OPERATIONAL_LOG_DEFUNCT_MINUTES = "2880"
   }
 
   if (-not (Test-Path $EnvPath)) {

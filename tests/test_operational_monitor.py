@@ -78,6 +78,25 @@ def test_later_ready_line_restores_operational_status(tmp_path: Path):
     assert status.coin_status == "operational"
 
 
+def test_old_error_line_is_not_reported_as_live_fault(tmp_path: Path):
+    import os
+    import time
+
+    log_dir = tmp_path / "3GerTis"
+    log_dir.mkdir()
+    log_file = log_dir / "Speedshot.log"
+    # A defunct camera log whose last line is a year-old error.
+    log_file.write_text("04.06.2025 11:29:36.355: Error 45\n", encoding="utf-8")
+    old = time.time() - 400 * 24 * 3600  # ~400 days ago
+    os.utime(log_file, (old, old))
+
+    status = read_operational_status(make_settings(tmp_path, (str(log_dir / "*.log"),)))
+
+    # No false "camera down" from a year-old line.
+    assert status.camera_status is None
+    assert status.devices == []
+
+
 def test_health_payload_includes_operational_devices(tmp_path: Path):
     log_dir = tmp_path / "logs-source"
     log_dir.mkdir()

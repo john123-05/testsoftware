@@ -58,6 +58,7 @@ class Settings:
     operational_log_globs: tuple[str, ...] = ()
     operational_log_tail_lines: int = 80
     operational_log_stale_minutes: int = 240
+    operational_log_defunct_minutes: int = 2880
 
     @classmethod
     def from_env_file(cls, env_path: str | Path | None = None) -> "Settings":
@@ -139,6 +140,7 @@ class Settings:
             operational_log_globs=operational_log_globs,
             operational_log_tail_lines=int(_get(values, "OPERATIONAL_LOG_TAIL_LINES", "80")),
             operational_log_stale_minutes=int(_get(values, "OPERATIONAL_LOG_STALE_MINUTES", "240")),
+            operational_log_defunct_minutes=int(_get(values, "OPERATIONAL_LOG_DEFUNCT_MINUTES", "2880")),
         )
 
     def ensure_dirs(self) -> None:

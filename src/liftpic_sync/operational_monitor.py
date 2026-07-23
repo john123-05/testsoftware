@@ -100,24 +100,33 @@ def _inspect_log(path: Path, settings: Settings) -> OperationalDevice | None:
     signal_line = _latest_signal_line(lines)
     now = datetime.now(timezone.utc)
     mtime = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
-    stale = (now - mtime).total_seconds() > settings.operational_log_stale_minutes * 60
+    age_seconds = (now - mtime).total_seconds()
+
+    # A device status must reflect CURRENT reality. Only a log with recent
+    # activity can produce a real fault. This is what guarantees genuine, fresh
+    # errors always surface while year-old lines (e.g. a defunct Speedshot.log
+    # whose last entry is from 2025) never masquerade as a live "down".
+    if age_seconds > settings.operational_log_defunct_minutes * 60:
+        # Dead/rotated-away log - ignore entirely.
+        return None
+
+    is_recent = age_seconds <= settings.operational_log_stale_minutes * 60
     line_text = signal_line or lines[-1]
     line_at = _parse_line_time(line_text) or mtime.isoformat()
 
-    if signal_line and PROBLEM_RE.search(signal_line):
+    if signal_line and PROBLEM_RE.search(signal_line) and is_recent:
         status = "down"
         severity = "error"
-    elif signal_line and WARNING_RE.search(signal_line):
+    elif signal_line and WARNING_RE.search(signal_line) and is_recent:
         status = "degraded"
         severity = "warning"
-    elif stale:
-        status = "degraded"
-        severity = "warning"
-        line_text = f"No recent log update since {mtime.isoformat()}"
-        line_at = mtime.isoformat()
-    else:
+    elif is_recent:
         status = "operational"
         severity = "info"
+    else:
+        # Quiet for a while (older than stale, newer than defunct): do not raise
+        # a false alarm from an old line - skip until there is fresh activity.
+        return None
 
     return OperationalDevice(
         name=_device_name(kind),
