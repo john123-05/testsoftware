@@ -3,6 +3,30 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def _decode_env_bytes(data: bytes) -> str:
+    """Decode a .env file that may have been written in UTF-8 or UTF-16.
+
+    Windows tools (older PowerShell defaults, Notepad "Save as Unicode") can
+    write .env files as UTF-16, which a naive utf-8 read either mangles or
+    fails on. Detect the encoding from a BOM or from interleaved NUL bytes and
+    always return clean text with any BOM stripped.
+    """
+    if data.startswith(b"\xff\xfe"):
+        text = data.decode("utf-16-le", errors="replace")
+    elif data.startswith(b"\xfe\xff"):
+        text = data.decode("utf-16-be", errors="replace")
+    elif data.startswith(b"\xef\xbb\xbf"):
+        text = data.decode("utf-8-sig", errors="replace")
+    elif data.count(0) > max(2, len(data) // 8):
+        # No BOM but lots of NUL bytes -> almost certainly UTF-16.
+        le_nuls = data[1::2].count(0)
+        encoding = "utf-16-le" if le_nuls >= data[0::2].count(0) else "utf-16-be"
+        text = data.decode(encoding, errors="replace")
+    else:
+        text = data.decode("utf-8", errors="replace")
+    return text.lstrip("﻿")
+
+
 def load_env_file(path: str | Path | None) -> dict[str, str]:
     if not path:
         return {}
@@ -12,8 +36,8 @@ def load_env_file(path: str | Path | None) -> dict[str, str]:
         return {}
 
     values: dict[str, str] = {}
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
+    for raw_line in _decode_env_bytes(env_path.read_bytes()).splitlines():
+        line = raw_line.strip().lstrip("﻿").strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
