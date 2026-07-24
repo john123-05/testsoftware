@@ -46,6 +46,11 @@ class Settings:
     archive_raw: bool
     camera_code: str = "default"
     config_refresh_seconds: float = 120
+    # If no heartbeat reaches the server for this many seconds the process
+    # exits(1) so the Windows scheduled task's restart-on-failure recovers it
+    # with a fresh process. 0 disables the watchdog. Must exceed
+    # heartbeat_seconds by a comfortable margin.
+    watchdog_seconds: float = 600
     paper_capacity: int = 0
     paper_warn_remaining: int = 20
     ride_count_enabled: bool = True
@@ -126,6 +131,7 @@ class Settings:
             upload_retry_seconds=float(_get(values, "UPLOAD_RETRY_SECONDS", "15")),
             heartbeat_seconds=float(_get(values, "HEARTBEAT_SECONDS", "60")),
             config_refresh_seconds=float(_get(values, "CONFIG_REFRESH_SECONDS", "120")),
+            watchdog_seconds=float(_get(values, "WATCHDOG_SECONDS", "600")),
             paper_capacity=int(_get(values, "PAPER_CAPACITY", "0") or "0"),
             paper_warn_remaining=int(_get(values, "PAPER_WARN_REMAINING", "20") or "20"),
             archive_raw=parse_bool(_get(values, "ARCHIVE_RAW", "false"), False),

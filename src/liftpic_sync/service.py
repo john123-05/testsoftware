@@ -29,6 +29,9 @@ class LiftpicService:
         self.store = StateStore(settings.state_db)
         self._build_workers()
         self._last_heartbeat = 0.0
+        # Wall-clock time of the last heartbeat that actually reached the server.
+        # The watchdog exits the process if this goes stale (see _check_watchdog).
+        self._last_heartbeat_ok = time.time()
         self._last_asset_sync = 0.0
         self._last_config_refresh = 0.0
 
@@ -43,11 +46,42 @@ class LiftpicService:
         self.store.close()
 
     def run_forever(self) -> None:
-        log.info("starting %s for park=%s machine=%s shadow=%s", self.settings.app_name, self.settings.park_slug, self.settings.machine_id, self.settings.shadow_mode)
+        log.info(
+            "starting %s for park=%s machine=%s shadow=%s watchdog=%ss",
+            self.settings.app_name,
+            self.settings.park_slug,
+            self.settings.machine_id,
+            self.settings.shadow_mode,
+            self.settings.watchdog_seconds,
+        )
+        self._last_heartbeat_ok = time.time()
         while True:
             self._refresh_config_if_due()
-            self.run_once()
+            try:
+                self.run_once()
+            except Exception:
+                # Never let one bad cycle kill the loop; the watchdog below
+                # handles a *persistent* failure by exiting for a clean restart.
+                log.exception("run_once failed")
+            self._check_watchdog()
             time.sleep(self.settings.poll_seconds)
+
+    def _check_watchdog(self) -> None:
+        """Exit(1) if no heartbeat has reached the server for watchdog_seconds, so
+        the scheduled task's restart-on-failure recovers us with a fresh process.
+        This turns a *silent hang* (connection dead but process alive) into an
+        automatic recovery instead of hours of unnoticed downtime."""
+        if self.settings.watchdog_seconds <= 0:
+            return
+        stalled_for = time.time() - self._last_heartbeat_ok
+        if stalled_for > self.settings.watchdog_seconds:
+            log.critical(
+                "connection watchdog: no successful heartbeat for %.0fs (limit %.0fs) - "
+                "exiting(1) so the scheduled task restarts a fresh process",
+                stalled_for,
+                self.settings.watchdog_seconds,
+            )
+            raise SystemExit(1)
 
     def _refresh_config_if_due(self) -> None:
         """Pull the dashboard config and apply changes live (shadow mode, upload
@@ -195,10 +229,14 @@ class LiftpicService:
 
         try:
             self.client.status(payload)
+            self._last_heartbeat_ok = now
             if self.settings.shadow_mode:
                 log.info("shadow heartbeat sent: %s", payload)
         except Exception as exc:
-            log.warning("heartbeat failed: %s", exc)
+            # Loud on purpose: a silent heartbeat failure is exactly the class
+            # of bug that hid the connection dropping for hours. ERROR so it
+            # shows up in the log's error filter next time.
+            log.error("heartbeat failed (server NOT updated): %s", exc)
 
     def _asset_sync_if_due(self) -> dict[str, int] | None:
         if not self.settings.asset_sync_enabled:
