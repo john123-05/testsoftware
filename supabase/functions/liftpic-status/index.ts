@@ -64,6 +64,40 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Log a throttled ride snapshot (the running daily ride count with a
+    // timestamp) so the dashboard can chart rides-per-hour by diffing
+    // consecutive snapshots - no PC/agent change needed. Never fail the
+    // heartbeat over this.
+    try {
+      const businessDate =
+        (rideRollups as Array<{ business_date?: unknown }>)
+          .map((item) => item?.business_date)
+          .filter((d): d is string => typeof d === "string")
+          .sort()
+          .pop() ?? new Date().toISOString().slice(0, 10);
+
+      const { data: lastSnap } = await supabase
+        .from("machine_ride_snapshots")
+        .select("captured_at")
+        .eq("machine_id", auth.machineId)
+        .order("captured_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const lastMs = lastSnap?.captured_at ? new Date(lastSnap.captured_at as string).getTime() : 0;
+
+      if (Date.now() - lastMs > 4 * 60 * 1000) {
+        await supabase.from("machine_ride_snapshots").insert({
+          park_id: auth.parkId,
+          machine_id: auth.machineId,
+          business_date: businessDate,
+          rides_today: Number(body.photos_taken_today ?? 0),
+          photos_sold_today: Number(body.photos_sold_today ?? 0),
+        });
+      }
+    } catch (_snapErr) {
+      // snapshot logging must never break the heartbeat
+    }
+
     return json({ ok: true });
   } catch (err) {
     if (err instanceof Response) return err;
