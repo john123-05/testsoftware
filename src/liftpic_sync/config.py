@@ -56,6 +56,10 @@ class Settings:
     ride_count_enabled: bool = True
     ride_count_source: str = "processed,raw"
     ride_rollup_days: int = 14
+    # Which 1-based digit positions of the camera capture number form the
+    # picture code - must equal jpeg4web's CodePositionsInFilename (Imst: 2,3,4,5)
+    # so our computed claim code matches the printed QR.
+    file_code_positions: str = "2,3,4,5"
     asset_sync_enabled: bool = False
     asset_sync_seconds: float = 300
     asset_backup_dir: Path | None = None
@@ -139,6 +143,7 @@ class Settings:
             ride_count_enabled=parse_bool(_get(values, "RIDE_COUNT_ENABLED", "true"), True),
             ride_count_source=_get(values, "RIDE_COUNT_SOURCE", "processed,raw").strip().lower(),
             ride_rollup_days=int(_get(values, "RIDE_ROLLUP_DAYS", "14")),
+            file_code_positions=_get(values, "FILE_CODE_POSITIONS", "2,3,4,5").strip() or "2,3,4,5",
             asset_sync_enabled=parse_bool(_get(values, "ASSET_SYNC_ENABLED", "false"), False),
             asset_sync_seconds=float(_get(values, "ASSET_SYNC_SECONDS", "300")),
             asset_backup_dir=Path(asset_backup_dir) if asset_backup_dir else None,

@@ -72,11 +72,12 @@ def build_legacy_filename(
     customer_code: str,
     capture_id: str,
     captured_at: datetime,
+    file_code_positions: str = "2,3,4,5",
     extension: str = ".jpg",
 ) -> LegacyName:
     customer = _four_digits(customer_code)
     time_code = captured_at.strftime("%d%m%Y")
-    file_code = _short_capture_code(capture_id)
+    file_code = _short_capture_code(capture_id, file_code_positions)
     mixed = mix_customer_time_capture(customer, time_code, file_code)
     filename = f"{mixed}{extension.lower()}"
     return LegacyName(
@@ -112,11 +113,24 @@ def _four_digits(value: str) -> str:
     return digits[:4].zfill(4)
 
 
-def _short_capture_code(capture_id: str) -> str:
+def _short_capture_code(capture_id: str, positions: str = "2,3,4,5") -> str:
+    """Pick the picture-code digits exactly like jpeg4web's
+    `CodePositionsInFilename` setting: the digits at the given 1-based positions
+    of the capture number (default "2,3,4,5" = Imst). This MUST match what
+    jpeg4web prints in the QR, or the claim code won't resolve. Doing it by
+    fixed positions (not "last 5, drop first") keeps it correct even if the
+    camera counter ever grows past 5 digits.
+    """
     digits = re.sub(r"\D", "", capture_id or "")
-    if len(digits) >= 5:
-        return digits[-5:][1:]
-    return digits[-4:].zfill(4)
+    idxs = [
+        int(p) - 1
+        for p in re.split(r"[,\s]+", (positions or "").strip())
+        if p.strip().isdigit()
+    ]
+    if not idxs:
+        idxs = [1, 2, 3, 4]
+    picked = "".join(digits[i] if 0 <= i < len(digits) else "0" for i in idxs)
+    return (picked or "0000").zfill(4)[-4:]
 
 
 def _speed_code_to_kmh(speed_code: str) -> float | None:

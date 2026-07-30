@@ -71,6 +71,7 @@ class FolderScanner:
                 customer_code=self.settings.customer_code,
                 capture_id=parsed.capture_id,
                 captured_at=captured_at,
+                file_code_positions=self.settings.file_code_positions,
             )
             business_date = captured_at.date().isoformat()
             event_key = build_event_key(
