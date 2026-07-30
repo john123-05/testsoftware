@@ -92,6 +92,10 @@ Deno.serve(async (req) => {
           business_date: businessDate,
           rides_today: Number(body.photos_taken_today ?? 0),
           photos_sold_today: Number(body.photos_sold_today ?? 0),
+          // Cumulative physical print counter (PrintCount.txt). Each print is a
+          // real sale, so diffing this per day gives the true sold count -
+          // immune to a polluted qrcode folder / upload queue.
+          paper_printed: body.paper_printed != null ? Number(body.paper_printed) : null,
         });
       }
     } catch (_snapErr) {
