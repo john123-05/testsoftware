@@ -32,6 +32,12 @@ class LiftpicService:
         # Wall-clock time of the last heartbeat that actually reached the server.
         # The watchdog exits the process if this goes stale (see _check_watchdog).
         self._last_heartbeat_ok = time.time()
+        # Wall-clock time of the last successful upload; the upload watchdog uses
+        # it to catch a dead upload path even while heartbeats keep flowing.
+        self._last_upload_ok = time.time()
+        # Throttle for the device-token self-repair so a bad token can't trigger
+        # a re-pair on every single loop iteration.
+        self._last_auth_repair = 0.0
         self._last_asset_sync = 0.0
         self._last_config_refresh = 0.0
 
@@ -83,6 +89,47 @@ class LiftpicService:
             )
             raise SystemExit(1)
 
+        # Upload-stall watchdog: fresh photos are queued but none have uploaded
+        # for too long (a dead/hung upload path the heartbeat can't see). Only
+        # "queued" work counts, never "retry" - dead retries (source file gone)
+        # would otherwise keep this tripping forever in a restart loop.
+        if self.settings.upload_stall_seconds > 0:
+            queued = int(self.store.counts().get("queued", 0))
+            if queued > 0 and (time.time() - self._last_upload_ok) > self.settings.upload_stall_seconds:
+                log.critical(
+                    "upload watchdog: %s photos queued but no upload succeeded for >%.0fs - "
+                    "exiting(1) for a clean restart",
+                    queued,
+                    self.settings.upload_stall_seconds,
+                )
+                raise SystemExit(1)
+
+    def _repair_auth(self) -> None:
+        """Uploads were rejected on auth (401/403) -> the device token is stale
+        or empty. Re-pair with the stored pairing code to fetch a fresh token
+        and apply it live. This is the self-heal for the recurring "uploads
+        silently rejected" outage; throttled so it runs at most every ~2 min."""
+        if not self.env_path or not self.settings.pairing_code:
+            return
+        now = time.time()
+        if now - self._last_auth_repair < 120:
+            return
+        self._last_auth_repair = now
+        try:
+            response = self.client.pair(self.settings.pairing_code)
+            config = response.get("config") or {}
+            device_token = str(response.get("device_token") or "")
+            if not isinstance(config, dict) or not device_token:
+                log.error("auth self-repair: pairing response missing config/token")
+                return
+            write_env_values(self.env_path, config_to_env(config, device_token))
+            self._apply_settings(Settings.from_env_file(self.env_path))
+            log.warning(
+                "auth self-repair: re-paired and refreshed the device token after an upload auth failure"
+            )
+        except Exception as exc:
+            log.error("auth self-repair failed: %s", exc)
+
     def _refresh_config_if_due(self) -> None:
         """Pull the dashboard config and apply changes live (shadow mode, upload
         mode, folder paths, ...) so edits in the Staff Dashboard reach a running
@@ -133,6 +180,12 @@ class LiftpicService:
         asset_result = self._asset_sync_if_due()
         result = self.scanner.scan_once()
         uploaded = self.uploader.upload_due()
+        if uploaded > 0:
+            self._last_upload_ok = time.time()
+        if self.uploader.auth_failed:
+            # Uploads are being rejected on auth -> our device token is stale.
+            # Heal it (re-pair) so uploads resume without any manual step.
+            self._repair_auth()
         counts = self.store.counts()
         ride_counts = self.store.ride_counts()
         log.info(

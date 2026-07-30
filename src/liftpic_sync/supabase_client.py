@@ -11,6 +11,12 @@ from typing import Any
 from .config import Settings
 
 
+class AuthError(RuntimeError):
+    """Raised when the server rejects our device token (HTTP 401/403). The
+    service catches this to trigger a self-repair (re-pair for a fresh token)
+    instead of endlessly retrying uploads that can never succeed."""
+
+
 class SupabaseIngestClient:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -147,6 +153,8 @@ class SupabaseIngestClient:
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
+            if exc.code in (401, 403):
+                raise AuthError(f"{function_name} HTTP {exc.code}: {detail}") from exc
             raise RuntimeError(f"{function_name} HTTP {exc.code}: {detail}") from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(f"{function_name} network error: {exc}") from exc

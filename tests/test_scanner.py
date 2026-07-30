@@ -87,7 +87,7 @@ def test_scan_keeps_same_capture_id_on_different_days(tmp_path: Path):
     assert len(list(store.due_uploads())) == 2
 
 
-def test_qrcode_source_stages_renamed_file_to_webout(tmp_path: Path):
+def test_qrcode_source_uploads_readonly_without_staging(tmp_path: Path):
     raw = tmp_path / "fotos"
     out = raw / "out"
     qrcode = raw / "qrcode"
@@ -129,10 +129,14 @@ def test_qrcode_source_stages_renamed_file_to_webout(tmp_path: Path):
     )
     store = StateStore(settings.state_db)
     result = FolderScanner(settings, store).scan_once()
+    # Read-only: the purchased photo is uploaded straight from qrcode; nothing
+    # is copied into the customer's webout folder (staged == 0).
     staged = webout / "2443106774002027.jpg"
     assert result.queued == 1
-    assert result.staged == 1
-    assert staged.exists()
+    assert result.staged == 0
+    assert not staged.exists()
     row = store.conn.execute("SELECT * FROM photo_events WHERE capture_id='00047'").fetchone()
-    assert row["legacy_filename"] == staged.name
-    assert row["processed_path"] == str(staged)
+    # The uploaded name is still the computed legacy filename (server assigns it
+    # from metadata), but the local source stays the untouched qrcode file.
+    assert row["legacy_filename"] == "2443106774002027.jpg"
+    assert row["processed_path"] == str(sold)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -28,6 +29,19 @@ def build_parser() -> argparse.ArgumentParser:
     pair = sub.add_parser("pair", parents=[env_parent], help="Pair this PC with a dashboard config")
     pair.add_argument("--code", required=True, help="Pairing code from the staff Liftpic Setup page")
     return parser
+
+
+def _singleton_lock_path(settings) -> Path:
+    """A single, install-independent lock location so two agents from *different*
+    install folders still exclude each other. The old per-state-DB lock only
+    guarded one folder, so a second install (the empty-.env re-install) ran a
+    rogue upload instance with a stale token - the recurring 401 outage. On
+    Windows the file lock is a system-wide kernel object, so it works across
+    user sessions (scheduled task vs. manual run) too."""
+    if sys.platform.startswith("win"):
+        base = os.environ.get("ProgramData") or r"C:\ProgramData"
+        return Path(base) / "liftpic-sync" / "singleton.lock"
+    return Path(settings.state_db).parent / "liftpic-sync.lock"
 
 
 def _acquire_single_instance_lock(lock_path: Path):
@@ -77,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
 
     lock_handle = None
     if args.command == "run":
-        lock_handle = _acquire_single_instance_lock(Path(settings.state_db).parent / "liftpic-sync.lock")
+        lock_handle = _acquire_single_instance_lock(_singleton_lock_path(settings))
         if lock_handle is None:
             logging.getLogger("liftpic_sync.cli").error(
                 "another liftpic-sync instance is already running (single-instance lock held) - "

@@ -51,6 +51,14 @@ class Settings:
     # with a fresh process. 0 disables the watchdog. Must exceed
     # heartbeat_seconds by a comfortable margin.
     watchdog_seconds: float = 600
+    # If uploads keep getting rejected on auth (a stale/empty device token), the
+    # agent re-pairs itself with this stored pairing code to fetch a fresh token
+    # - self-heals the recurring "uploads rejected 401" outage, no manual step.
+    pairing_code: str = ""
+    # Exit(1) for a clean restart if there is fresh queued upload work but no
+    # upload has succeeded for this long (0 disables). Complements
+    # watchdog_seconds, which only covers a dead heartbeat, not a dead upload.
+    upload_stall_seconds: float = 900
     paper_capacity: int = 0
     paper_warn_remaining: int = 20
     ride_count_enabled: bool = True
@@ -136,6 +144,8 @@ class Settings:
             heartbeat_seconds=float(_get(values, "HEARTBEAT_SECONDS", "60")),
             config_refresh_seconds=float(_get(values, "CONFIG_REFRESH_SECONDS", "120")),
             watchdog_seconds=float(_get(values, "WATCHDOG_SECONDS", "600")),
+            pairing_code=_get(values, "PAIRING_CODE", "").strip(),
+            upload_stall_seconds=float(_get(values, "UPLOAD_STALL_SECONDS", "900")),
             paper_capacity=int(_get(values, "PAPER_CAPACITY", "0") or "0"),
             paper_warn_remaining=int(_get(values, "PAPER_WARN_REMAINING", "20") or "20"),
             archive_raw=parse_bool(_get(values, "ARCHIVE_RAW", "false"), False),

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .config import Settings
 from .state import StateStore
-from .supabase_client import SupabaseIngestClient, next_retry_after
+from .supabase_client import AuthError, SupabaseIngestClient, next_retry_after
 
 
 class UploadWorker:
@@ -13,9 +13,14 @@ class UploadWorker:
         self.settings = settings
         self.store = store
         self.client = SupabaseIngestClient(settings)
+        # Set True when an upload this cycle was rejected on auth (401/403), so
+        # the service can self-repair the device token instead of retrying
+        # forever. Reset at the start of every upload_due() call.
+        self.auth_failed = False
 
     def upload_due(self, limit: int = 10) -> int:
         uploaded = 0
+        self.auth_failed = False
         for row in self.store.due_uploads(limit):
             event_key = row["event_key"]
             capture_id = row["capture_id"]
@@ -48,6 +53,17 @@ class UploadWorker:
                 self.client.commit(capture_id, storage_path, event_key=event_key)
                 self.store.mark_uploaded(event_key, storage_path)
                 uploaded += 1
+            except AuthError as exc:
+                # Token rejected: stop hammering, flag for self-repair, and hold
+                # this item for a normal retry once the token is refreshed.
+                self.auth_failed = True
+                attempts = int(row["attempts"] or 0)
+                self.store.mark_retry(
+                    event_key,
+                    str(exc),
+                    next_retry_after(self.settings.upload_retry_seconds, attempts),
+                )
+                break
             except Exception as exc:
                 attempts = int(row["attempts"] or 0)
                 self.store.mark_retry(
