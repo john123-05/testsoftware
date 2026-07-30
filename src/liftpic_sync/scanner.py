@@ -79,10 +79,11 @@ class FolderScanner:
                 business_date=business_date,
                 capture_id=parsed.capture_id,
             )
-            stage_path = self._stage_if_needed(path, legacy.filename)
-            if stage_path != path:
-                staged += 1
-            source_path = stage_path or path
+            # Read-only: upload the purchased photo straight from where the
+            # camera chain put it (qrcode), never copying/staging anything onto
+            # the customer's system. The uploaded name is assigned by the server
+            # from legacy_filename in the metadata, so no local rename is needed.
+            source_path = path
             checksum = sha256_file(source_path)
             status = "queued"
             metadata = {
