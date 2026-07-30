@@ -45,6 +45,17 @@ if (-not $task) {
 # ------------------------------------------------- 2. stop the running agent
 Step "Stoppe die Agent-Aufgabe und laufende Instanz(en)"
 if ($task) { Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue }
+# Disable any OTHER scheduled task that launches the agent - the duplicate that
+# starts a second, token-less instance (the root of the recurring 401). Keep
+# only the canonical task.
+Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+  $_.TaskName -ne $TaskName -and
+  ((($_.Actions.Execute -join ' ') + ' ' + ($_.Actions.Arguments -join ' ')) -match 'liftpic[-_]sync')
+} | ForEach-Object {
+  Write-Host "   deaktiviere doppelte Aufgabe: $($_.TaskName)" -ForegroundColor Yellow
+  Stop-ScheduledTask -TaskName $_.TaskName -TaskPath $_.TaskPath -ErrorAction SilentlyContinue
+  Disable-ScheduledTask -TaskName $_.TaskName -TaskPath $_.TaskPath -ErrorAction SilentlyContinue
+}
 Start-Sleep -Seconds 2
 try {
   Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
