@@ -28,6 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("assets", parents=[env_parent], help="Download dashboard-managed local assets once")
     pair = sub.add_parser("pair", parents=[env_parent], help="Pair this PC with a dashboard config")
     pair.add_argument("--code", required=True, help="Pairing code from the staff Liftpic Setup page")
+    purge = sub.add_parser("purge-date", parents=[env_parent], help="Delete local photo+ride events for one business date (cleanup)")
+    purge.add_argument("--date", required=True, help="Business date YYYY-MM-DD to purge from local state")
     return parser
 
 
@@ -87,6 +89,17 @@ def main(argv: list[str] | None = None) -> int:
             raise RuntimeError("pairing response did not include config and device_token")
         write_env_values(args.env, config_to_env(config, device_token))
         print(json.dumps({"ok": True, "machine_id": config.get("machine_id"), "camera_code": config.get("camera_code")}, indent=2))
+        return 0
+
+    if args.command == "purge-date":
+        from .state import StateStore
+
+        store = StateStore(settings.state_db)
+        try:
+            photos, rides = store.purge_business_date(args.date)
+        finally:
+            store.close()
+        print(json.dumps({"ok": True, "date": args.date, "purged_photo_events": photos, "purged_ride_events": rides}, indent=2))
         return 0
 
     lock_handle = None

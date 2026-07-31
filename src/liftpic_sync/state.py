@@ -414,6 +414,19 @@ class StateStore:
         ).fetchone()
         return row is not None
 
+    def purge_business_date(self, date: str) -> tuple[int, int]:
+        """Delete all photo + ride events for a business date (YYYY-MM-DD) from
+        local state. One-off cleanup for phantom entries created before the
+        capture-dedup fix. Returns (photo_events_deleted, ride_events_deleted)."""
+        p = self.conn.execute(
+            "DELETE FROM photo_events WHERE substr(captured_at, 1, 10) = ?", (date,)
+        ).rowcount
+        r = self.conn.execute(
+            "DELETE FROM ride_events WHERE business_date = ?", (date,)
+        ).rowcount
+        self.conn.commit()
+        return int(p or 0), int(r or 0)
+
     def ride_rollups(
         self,
         *,
