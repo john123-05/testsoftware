@@ -46,6 +46,13 @@ class FolderScanner:
                 continue
             seen_capture_ids.add(parsed.capture_id)
 
+            # Already uploaded on an earlier run/day? Skip. jpeg4web leaves sold
+            # photos in qrcode and can re-touch them (new mtime), which would
+            # otherwise re-queue them under a new, wrong date and create phantom
+            # duplicate "sales" the next morning. Dedup is stable per capture_id.
+            if self.store.has_uploaded_capture(parsed.capture_id):
+                continue
+
             raw_path = path if path.parent == self.settings.raw_dir else None
             processed_path: Path | None = None
             speed_match = speed_from_processed_name(path.name)

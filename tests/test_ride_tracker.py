@@ -54,12 +54,15 @@ def test_ride_tracker_dedupes_raw_and_processed(tmp_path: Path):
     tracker = RideTracker(settings, store)
 
     result = tracker.scan_once()
-    assert result.seen == 2
+    # The capture is counted once from the first file seen; the same capture_id
+    # in the other folder is skipped (stable per-capture dedup).
+    assert result.seen == 1
     assert result.new == 1
     assert store.ride_counts() == {"2026-07-14": 1}
 
     second = tracker.scan_once()
-    assert second.seen == 2
+    # Already counted -> skipped entirely, never recounted (even on a later day).
+    assert second.seen == 0
     assert second.new == 0
 
 

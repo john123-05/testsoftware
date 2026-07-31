@@ -140,3 +140,32 @@ def test_qrcode_source_uploads_readonly_without_staging(tmp_path: Path):
     # from metadata), but the local source stays the untouched qrcode file.
     assert row["legacy_filename"] == "2443106774002027.jpg"
     assert row["processed_path"] == str(sold)
+
+
+def test_scanner_skips_already_uploaded_capture_after_redate(tmp_path: Path):
+    """A sold photo that stays in the folder and gets re-touched to a new date
+    (jpeg4web) must NOT be re-queued as a phantom next-day duplicate."""
+    import os
+    import time as _time
+
+    settings = make_settings(tmp_path)
+    photo = settings.raw_dir / "00048.jpg"
+    photo.write_bytes(b"x")
+
+    store = StateStore(settings.state_db)
+    scanner = FolderScanner(settings, store)
+
+    first = scanner.scan_once()
+    assert first.queued == 1
+    rows = store.conn.execute("SELECT event_key FROM photo_events").fetchall()
+    assert len(rows) == 1
+    store.mark_uploaded(rows[0]["event_key"], "processed/test/00048.jpg")
+
+    # Simulate the file being re-touched to the next day.
+    new_mtime = _time.time() + 86400
+    os.utime(photo, (new_mtime, new_mtime))
+
+    second = scanner.scan_once()
+    assert second.queued == 0  # already uploaded -> skipped, no phantom duplicate
+    assert store.counts().get("queued", 0) == 0
+    assert store.photos_sold_total() == 1  # still exactly one event, not two

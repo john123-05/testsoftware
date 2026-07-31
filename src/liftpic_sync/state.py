@@ -186,6 +186,10 @@ class StateStore:
             ON ride_events(park_id, machine_id, camera_code, business_date)
             """
         )
+        # Stable per-capture lookups so a file that gets re-dated (mtime change)
+        # is never processed twice under a new business_date.
+        cur.execute("CREATE INDEX IF NOT EXISTS photo_events_capture_idx ON photo_events(capture_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS ride_events_capture_idx ON ride_events(capture_id)")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS asset_deployments (
@@ -389,6 +393,26 @@ class StateStore:
             "SELECT upload_status, COUNT(*) AS count FROM photo_events GROUP BY upload_status"
         ).fetchall()
         return {row["upload_status"]: int(row["count"]) for row in rows}
+
+    def has_uploaded_capture(self, capture_id: str) -> bool:
+        """True if this capture's photo was already uploaded (or shadowed) in an
+        earlier event, regardless of business_date. Lets the scanner skip a
+        leftover qrcode file that jpeg4web re-touched, instead of re-queuing it
+        under a new (wrong) date - the cause of phantom next-day duplicate sales."""
+        row = self.conn.execute(
+            "SELECT 1 FROM photo_events WHERE capture_id=? AND upload_status IN ('uploaded','shadowed') LIMIT 1",
+            (capture_id,),
+        ).fetchone()
+        return row is not None
+
+    def has_ride_capture(self, capture_id: str) -> bool:
+        """True if this capture was already counted as a ride, regardless of
+        business_date. A ride is counted once, even if its file is re-dated later."""
+        row = self.conn.execute(
+            "SELECT 1 FROM ride_events WHERE capture_id=? LIMIT 1",
+            (capture_id,),
+        ).fetchone()
+        return row is not None
 
     def ride_rollups(
         self,

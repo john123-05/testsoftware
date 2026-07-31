@@ -44,6 +44,11 @@ class RideTracker:
                 skipped_unknown += 1
                 continue
 
+            # A capture is one ride, counted exactly once - even if its file is
+            # re-dated later (mtime change), never recount it under a new day.
+            if self.store.has_ride_capture(parsed.capture_id):
+                continue
+
             raw_path: Path | None = path if self._same_folder(path.parent, self.settings.raw_dir) else None
             processed_path: Path | None = path if self._same_folder(path.parent, self.settings.processed_dir) else None
             speed_match = speed_from_processed_name(path.name)
