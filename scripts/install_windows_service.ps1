@@ -10,7 +10,7 @@ if (!(Test-Path $InstallDir)) {
 }
 
 $python = (Get-Command python -ErrorAction Stop).Source
-$args = "-m liftpic_sync.cli --env `"$EnvFile`" run"
+$args = "-m liftpic_sync.cli run --env `"$EnvFile`""
 $serviceName = "LiftpicSync"
 
 $nssm = Get-Command nssm.exe -ErrorAction SilentlyContinue

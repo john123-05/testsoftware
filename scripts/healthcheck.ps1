@@ -3,4 +3,4 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-python -m liftpic_sync.cli --env $EnvFile health
+python -m liftpic_sync.cli health --env $EnvFile

@@ -68,7 +68,7 @@ cd C:\liftpic\liftpic-sync
 python -m pip install -e .
 copy config\park.example.env .env
 notepad .env
-python -m liftpic_sync.cli --env .env pair --code YOURCODE
+python -m liftpic_sync.cli pair --code YOURCODE --env .env
 powershell -ExecutionPolicy Bypass -File scripts\install_windows_service.ps1
 ```
 
@@ -80,8 +80,8 @@ device token are written by the pairing command.
 ## Run once for testing
 
 ```powershell
-python -m liftpic_sync.cli --env .env scan-once
-python -m liftpic_sync.cli --env .env health
+python -m liftpic_sync.cli scan-once --env .env
+python -m liftpic_sync.cli health --env .env
 ```
 
 ## Install as Windows service

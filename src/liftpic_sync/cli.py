@@ -20,7 +20,14 @@ def build_parser() -> argparse.ArgumentParser:
     env_parent = argparse.ArgumentParser(add_help=False)
     env_parent.add_argument("--env", default=".env", help="Path to .env file")
 
-    parser = argparse.ArgumentParser(prog="liftpic-sync", parents=[env_parent])
+    # --env lives only on the subcommand parsers, not here too. argparse merges
+    # both into the same "env" dest when a value is supplied before the
+    # subcommand name, but the subcommand parser's own default silently wins
+    # and overwrites it - "--env X pair --code Y" quietly resolves to the
+    # default ".env" instead of X, with no error. Keeping --env off the top
+    # level makes that invocation order fail loudly instead of pairing/running
+    # against an empty config.
+    parser = argparse.ArgumentParser(prog="liftpic-sync")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("run", parents=[env_parent], help="Run forever")
     sub.add_parser("scan-once", parents=[env_parent], help="Scan and upload one iteration")

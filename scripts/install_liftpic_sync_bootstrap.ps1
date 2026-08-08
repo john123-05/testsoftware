@@ -175,7 +175,7 @@ function Install-ScheduledTask {
     [string]$WorkingDir
   )
 
-  $args = "-m liftpic_sync.cli --env `"$EnvPath`" run"
+  $args = "-m liftpic_sync.cli run --env `"$EnvPath`""
   $action = New-ScheduledTaskAction -Execute $PythonPath -Argument $args -WorkingDirectory $WorkingDir
   $trigger = New-ScheduledTaskTrigger -AtStartup
   $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
@@ -255,7 +255,7 @@ Write-Host "Kopple diesen PC mit dem Dashboard..."
 $PairAttempts = 3
 $Paired = $false
 for ($attempt = 1; $attempt -le $PairAttempts; $attempt++) {
-  & $VenvPython -m liftpic_sync.cli --env $EnvPath pair --code $PairingCode
+  & $VenvPython -m liftpic_sync.cli pair --code $PairingCode --env $EnvPath
   if ($LASTEXITCODE -eq 0) {
     $Paired = $true
     break
@@ -277,5 +277,5 @@ Write-Host ""
 Write-Host "Fertig."
 Write-Host "Liftpic Sync laeuft jetzt im Hintergrund."
 Write-Host "Status pruefen:"
-Write-Host "  $VenvPython -m liftpic_sync.cli --env `"$EnvPath`" health"
+Write-Host "  $VenvPython -m liftpic_sync.cli health --env `"$EnvPath`""
 Write-Host ""

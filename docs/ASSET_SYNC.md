@@ -51,7 +51,7 @@ come from `liftpic_asset_deployments`.
 Run one asset sync without waiting for the service loop:
 
 ```powershell
-python -m liftpic_sync.cli --env .env assets
+python -m liftpic_sync.cli assets --env .env
 ```
 
 Expected output:

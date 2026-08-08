@@ -8,7 +8,7 @@ Start from:
 
 ```powershell
 copy config\park.example.env .env
-python -m liftpic_sync.cli --env .env pair --code YOURCODE
+python -m liftpic_sync.cli pair --code YOURCODE --env .env
 ```
 
 ## Required values
@@ -80,7 +80,7 @@ local target paths such as viewer logos, `image1.png` print overlays, old
 `imageloader` templates or the old `jpeg4web` logo. Test manually with:
 
 ```powershell
-python -m liftpic_sync.cli --env .env assets
+python -m liftpic_sync.cli assets --env .env
 ```
 
 More detail is in `docs/ASSET_SYNC.md`.

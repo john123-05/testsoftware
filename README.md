@@ -54,7 +54,7 @@ For development:
 
 ```powershell
 python -m pip install -e .[dev]
-python -m liftpic_sync.cli --env .env scan-once
+python -m liftpic_sync.cli scan-once --env .env
 python -m pytest
 ```
 
