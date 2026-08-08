@@ -60,7 +60,14 @@ class FolderScanner:
 
             if path.parent == self.settings.processed_dir:
                 processed_path = path
-            else:
+            elif speed_match.status != "ok":
+                # Only search processed_dir for a speed match when the file's
+                # own name didn't already carry one - e.g. a qrcode-folder file
+                # that still has the AidaTest speed suffix. Previously this ran
+                # unconditionally and discarded an already-correct speed_match
+                # from the line above whenever the file wasn't literally in
+                # processed_dir, even if processed_dir had nothing to offer
+                # (empty/already cleaned up), silently losing a known speed.
                 processed_path, speed_match = find_matching_processed_file(
                     self.settings.processed_dir,
                     parsed.capture_id,

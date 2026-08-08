@@ -53,7 +53,10 @@ class RideTracker:
             processed_path: Path | None = path if self._same_folder(path.parent, self.settings.processed_dir) else None
             speed_match = speed_from_processed_name(path.name)
 
-            if not processed_path:
+            if not processed_path and speed_match.status != "ok":
+                # See scanner.py's identical check: don't discard an already-
+                # correct speed parsed straight from this file's own name by
+                # unconditionally searching processed_dir, which may be empty.
                 processed_path, speed_match = find_matching_processed_file(
                     self.settings.processed_dir,
                     parsed.capture_id,
