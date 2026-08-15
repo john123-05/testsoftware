@@ -170,18 +170,40 @@ einem nie dagewesenen zu unterscheiden.
 - [x] 2 Sperrdatei auf SYSTEM-Rechte → weicht aus, meldet es (das ist die
       **echte** Lage auf diesem PC, nicht nachgestellt:
       `ProgramData … [Errno 13] Permission denied … fell back to LOCALAPPDATA`)
-- [ ] 3 Aufgabe **und** Dienst → Installer räumt die andere Startart ab
-- [ ] 4 Update bei laufendem Agenten → kein Enkelprozess übrig
-- [ ] 5 Neustart-Auftrag bei zwei Instanzen → genau ein Neustart
+- [ ] 3 Aufgabe **und** Dienst → **braucht Administrator**, siehe unten
+- [ ] 4 Update bei laufendem Agenten → **braucht Administrator**, siehe unten
+- [x] 5 Neustart-Auftrag bei zwei Instanzen → genau ein Neustart. Live gegen
+      die **echte** Zustandsdatenbank geprüft: Agent A bekommt ihn, Agent B
+      nicht. Probe danach wieder entfernt.
 - [ ] 6 Verkaufsprogramm klemmt → ehrliche Meldung, kein falscher Erfolg
-- [ ] 7 Kamera während Neustart weg → kein Testfoto ins Leere
-- [ ] 8 Protokolldatei umbenannt/verschoben → wird gefunden
-- [ ] 9 Fremde `debug.log` daneben → wird nicht zum Verkaufsprogramm
+- [x] 7 Kamera weg → kein Testfoto ins Leere. Fünf Fälle geprüft: gerade
+      verloren (0 min) · seit 90 min verloren · verloren und
+      zurückgemeldet → `True` · **nur `(from ini)` zählt nicht als
+      Entwarnung** · keine Aussage → `None`, nicht „nicht verbunden".
+- [x] 8 Protokolldatei an einem Ort, den kein Muster trifft → wird gefunden
+      (`test_protokoll_wird_auch_ohne_passendes_muster_gefunden`)
+- [x] 9 Fremde `debug.log` unter `CAMware\` → wird **nicht** zum
+      Verkaufsprogramm, verschwindet aber auch nicht
 - [ ] 10 Netz trennen → Ereignisse gepuffert, Wachhund greift
-- [ ] 11 `.env` mit Umlaut, Installer → Umlaut überlebt
-- [ ] 12 Rollback aus der Ordnersicherung → läuft wie vorher
-- [ ] 13 Asset mit gesperrter Zieldatei → eine Sicherung, Neustart-Hinweis
+- [x] 11 `.env` mit Umlaut, Installer setzt einen Schlüssel → Umlaut überlebt.
+      Gegenprobe mit der alten ASCII-Kodierung: `Süd` → `S?d` und
+      `\Überwachung` → `\?berwachung`. Der zweite Fall ist der gefährliche —
+      aus einem gültigen Pfad wird einer, den es nicht gibt.
+- [ ] 12 Rollback aus der Ordnersicherung → **braucht Administrator**
+- [x] 13 Asset mit gesperrter Zieldatei → keine Sicherung, Wartezustand
+      gemeldet (`test_gesperrtes_ziel_erzeugt_keine_sicherung`)
 - [ ] 14 Nach jedem Schritt: Foto → Upload → richtiger Park → Umsatz stimmt
+
+**Szenario 3, 4 und 12 brauchen eine erhöhte Konsole.** Dafür liegt bereit:
+
+```powershell
+# Als Administrator ausführen:
+powershell -ExecutionPolicy Bypass -File C:\liftpic\liftpic-sync\scripts\ap7_pruefung.ps1
+```
+
+Es stellt jeden Fall nach, prüft die Erwartung und räumt hinter sich auf.
+Szenario 12 läuft auf einer Kopie in `%TEMP%`, die Installation wird nicht
+angefasst; Szenario 4 hält den Agenten kurz an und startet ihn wieder.
 
 Vor und nach jedem Schritt vergleichen — muss identisch bleiben:
 `select * from park_photo_sales_daily where business_date >= current_date - 2`
