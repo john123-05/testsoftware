@@ -113,10 +113,20 @@ einem nie dagewesenen zu unterscheiden.
 
 ## AP-4 — Asset-Sicherungs-Kreislauf
 
-- [ ] 4.1 Sicherung erst nach erfolgreichem Schreiben / Entdopplung
-- [ ] 4.2 `restart_needed` auswerten und im Dashboard zeigen
-- [ ] 4.3 Aufbewahrungsgrenze + einmaliges Aufräumen der 119 Altkopien
-- [ ] 4.4 Test für gesperrten Zielpfad
+- [x] 4.1 Vor der Sicherung wird geprüft, ob das Ziel überhaupt beschreibbar
+      ist (`_ziel_ist_gesperrt`). Ist es belegt, entsteht **keine** Sicherung
+      mehr — das war der Kreislauf. Dazu Entdopplung: gleicher alter Inhalt wie
+      die jüngste vorhandene Sicherung → keine neue.
+- [x] 4.2 `restart_needed` wird ausgewertet und **einmal** als Verlaufseintrag
+      gemeldet („Ein neues Bild wartet auf einen Neustart des
+      Verkaufsprogramms"), nicht alle 20 Sekunden erneut. Steht außerdem im
+      Herzschlag.
+- [x] 4.3 Aufbewahrung: 10 Stände je Datei, leere Ordner werden mitgenommen.
+      Einmalige Bereinigung auf dem Testrechner: 122 → 4 Dateien, 6,9 MB frei,
+      **jeder der vier unterschiedlichen Inhalte erhalten** (nur byte-gleiche
+      Dubletten entfernt).
+- [x] 4.4 Zwei Tests: gesperrtes Ziel erzeugt keine Sicherung und meldet den
+      Wartezustand; derselbe alte Inhalt wird nicht zweimal gesichert.
 
 ## AP-5 — Merkmale aus der Ferne schalten
 

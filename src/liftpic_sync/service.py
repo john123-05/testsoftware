@@ -160,6 +160,8 @@ class LiftpicService:
         # es bereits gemeldet haben (F-025).
         self._auth_repairs = 0
         self._auth_repair_gemeldet = False
+        # Ob wir schon gemeldet haben, dass ein Bild auf einen Neustart wartet.
+        self._asset_neustart_gemeldet = False
         self._last_asset_sync = 0.0
         self._last_config_refresh = 0.0
         self._last_payment_scan = 0.0
@@ -797,11 +799,33 @@ class LiftpicService:
 
             self._handle_restart_request(result)
 
+            # Wartet ein Bild auf einen Neustart, muss das jemand erfahren
+            # (F-027). `restart_needed` wurde bisher gesetzt und NIRGENDS
+            # gelesen: das Verkaufsprogramm hielt die Datei offen, der Austausch
+            # scheiterte bei jedem Abruf aufs Neue, und im Dashboard stand
+            # nichts davon. Nur einmal melden, sonst steht der Verlauf alle 20
+            # Sekunden voll.
+            if result.restart_needed and not self._asset_neustart_gemeldet:
+                self._asset_neustart_gemeldet = True
+                self.store.record_health_event(
+                    kind="viewer", severity="info",
+                    summary="Ein neues Bild wartet auf einen Neustart des Verkaufsprogramms",
+                    detail=(
+                        "Das Verkaufsprogramm hält die Bilddatei geöffnet; sie "
+                        "lässt sich erst nach einem Neustart austauschen. Über "
+                        "den Knopf „Verkaufsprogramm neu starten“ oder in der "
+                        "Ruhezeit erledigt sich das."
+                    ),
+                )
+            elif not result.restart_needed:
+                self._asset_neustart_gemeldet = False
+
             return {
                 "fetched": result.fetched,
                 "applied": result.applied,
                 "skipped": result.skipped,
                 "failed": result.failed,
+                "restart_needed": result.restart_needed,
             }
         except Exception as exc:
             log.warning("asset sync failed: %s", exc)
