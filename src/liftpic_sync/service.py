@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import time
 from datetime import datetime
@@ -34,6 +35,20 @@ log = logging.getLogger(__name__)
 # genug fuer einen Automaten, der kurz offline war, eng genug, dass niemand von
 # einem Neustart ueberrascht wird, den er laengst vergessen hat.
 AUFTRAG_MAX_ALTER_MINUTEN = 30
+
+
+# Stoerungen, die ein laufender Prozess nicht heilen kann.
+#
+# Sonst gilt: laeuft das Programm noch, beschreibt eine Fehlerzeile ein Problem
+# IM Programm, nicht MIT ihm - dann ist Gelb richtig. "Device lost" ist die
+# Ausnahme. 3GerTis laeuft danach unveraendert weiter, nimmt aber nie wieder ein
+# Bild auf, weil es mit restart_if_lost=0 nicht neu verbindet. Am 15.08.2026
+# stand die Kachel deshalb auf Gelb, waehrend 40 Minuten spaeter ein Testfoto
+# ins Leere lief.
+PROZESS_HILFT_NICHT = re.compile(
+    r"(device lost|geraet verloren|gerät verloren)",
+    re.IGNORECASE,
+)
 
 
 def _auftragsalter_minuten(request: dict) -> float | None:
@@ -78,6 +93,12 @@ def _reconcile(devices, probes: list[dict], online: bool = True) -> list[dict]:
     Nacht sagt nichts darueber, ob gerade eine Verbindung besteht. Wenn wir in
     diesem Moment mit dem Server sprechen, ist sie da - und der alte Eintrag
     gehoert in die Vergangenheitsform, nicht auf Rot.
+
+    Eine Ausnahme bleibt: manche Stoerungen kann ein laufender Prozess gar
+    nicht heilen. Verliert die Kamera ihr Geraet, laeuft 3GerTis munter weiter
+    und nimmt trotzdem nie wieder ein Bild auf - `restart_if_lost=0`, es
+    verbindet sich nicht von allein neu. Solche Zeilen duerfen nicht
+    heruntergestuft werden, sonst steht Gelb, wo Rot hingehoert.
     """
     laufend = {
         p.get("name", "").lower()
@@ -94,7 +115,8 @@ def _reconcile(devices, probes: list[dict], online: bool = True) -> list[dict]:
         # split bleibt fuer aeltere Eintraege stehen, die den Technikzusatz noch
         # im Namen trugen.
         basis = name.split("(")[0].strip().lower()
-        if eintrag.get("status") == "down" and basis in laufend:
+        unheilbar = bool(PROZESS_HILFT_NICHT.search(eintrag.get("detail", "") or ""))
+        if eintrag.get("status") == "down" and basis in laufend and not unheilbar:
             eintrag["status"] = "degraded"
             eintrag["severity"] = "warning"
             eintrag["detail"] = f"Programm laeuft, meldet aber: {eintrag.get('detail', '')}"

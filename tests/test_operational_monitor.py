@@ -46,6 +46,53 @@ def make_settings(tmp_path: Path, globs: tuple[str, ...]) -> Settings:
     )
 
 
+def test_running_process_does_not_soften_a_lost_camera():
+    """Ein laufender Prozess entschaerft nicht jeden Fehler.
+
+    Die Regel "laeuft das Programm, ist der Fehler nur IM Programm" stimmt fuer
+    das Verkaufsprogramm: eine halb geschriebene Vorschaudatei ist harmlos, das
+    Programm verkauft weiter. Fuer die Kamera stimmt sie nicht - 3GerTis laeuft
+    nach "Device lost" unveraendert weiter und nimmt trotzdem nie wieder ein
+    Bild auf. Am 15.08.2026 stand die Kachel deshalb auf Gelb, waehrend 40
+    Minuten spaeter ein Testfoto ins Leere lief.
+    """
+    from liftpic_sync.operational_monitor import OperationalDevice
+    from liftpic_sync.service import _reconcile
+
+    def geraet(name: str, detail: str) -> OperationalDevice:
+        return OperationalDevice(
+            name=name, kind="camera" if "Kamera" in name else "viewer",
+            status="down", detail=detail, source_file="log.txt",
+            last_seen_at="2026-08-15T10:11:42", severity="error",
+            idle_minutes=5, primary=True, tech="3GerTis",
+            merge_key=name.lower(), purpose="", plain="",
+        )
+
+    laeuft = [
+        {"kind": "process", "name": "kamera-software", "status": "ok"},
+        {"kind": "process", "name": "verkaufsprogramm", "status": "ok"},
+    ]
+    nach = {
+        d["name"]: d for d in _reconcile(
+            [
+                geraet("Kamera-Software", "15.08.2026 10:11:42\tDevice lost"),
+                geraet("Verkaufsprogramm",
+                       "Error loading thumbnail 'c:\\liftpic\\fotos\\00004.jpg'"),
+            ],
+            laeuft,
+        )
+    }
+
+    # Der Geraeteverlust bleibt rot - kein Neustart des Prozesses holt ihn zurueck.
+    assert nach["Kamera-Software"]["status"] == "down"
+    assert "Programm laeuft" not in nach["Kamera-Software"]["detail"]
+
+    # Der Vorschaufehler dagegen wird weiterhin entschaerft: das Programm laeuft,
+    # verkauft weiter, und die Zeile beschreibt ein Problem IM Programm.
+    assert nach["Verkaufsprogramm"]["status"] == "degraded"
+    assert nach["Verkaufsprogramm"]["detail"].startswith("Programm laeuft")
+
+
 def test_device_lost_turns_the_camera_red(tmp_path: Path):
     """Die Kamera darf nach "Device lost" nicht gruen bleiben.
 
