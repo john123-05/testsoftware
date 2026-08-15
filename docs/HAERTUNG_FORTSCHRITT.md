@@ -1,0 +1,126 @@
+# Härtung vor dem Imst-Rollout — Fortschritt
+
+**Diese Datei ist der Wiedereinstiegspunkt.** Wer hier weiterarbeitet (auch nach
+einem Kontextverlust): erstes offenes Kästchen suchen, mit `git log --oneline`
+gegenprüfen, dort weitermachen. Jedes Paket wird einzeln committet, die
+AP-Nummer steht in der ersten Zeile der Commit-Beschreibung.
+
+Ziel: Imst (produktiv, ~1145 Fotos und ~142 Verkäufe am Tag) kann aktualisiert
+werden, ohne dass Doppelbetrieb, ein falscher Pfad, ein verschluckter Fehler
+oder ein fehlgeschlagener Neustart die Anlage stört — mit einem Rückweg, der in
+Minuten funktioniert.
+
+---
+
+## Bindende Reihenfolge
+
+```
+AP-0 ─→ AP-1 … AP-6 ─→ AP-7 Simulation ─→ Tag v0.1.0-imst-stand (Fallback!)
+                                            ─→ Merge nach main ─→ Tag v0.2.0
+                                                                   └─→ AP-8 Imst
+```
+
+Der Fallback-Tag muss **vor** dem Merge stehen. Nach dem Merge zieht jede
+Neuinstallation den neuen Stand — deshalb ist die Simulation das Tor zum Merge,
+nicht eine Empfehlung.
+
+---
+
+## AP-0 — Journale
+
+- [x] `docs/HAERTUNG_FORTSCHRITT.md` (diese Datei)
+- [x] `docs/FEHLERJOURNAL.md` mit den bereits gefundenen Fehlern
+
+## AP-1 — Einmaligkeit erzwingen
+
+- [ ] 1.1 Sperre reparieren (`cli.py:60-86`) — Ausweichpfad LOCALAPPDATA,
+      bei endgültigem Fehlschlag weiterlaufen **aber laut melden**
+- [ ] 1.2 Prozessnummer ins Protokollformat (`logging_setup.py:17`)
+- [ ] 1.3 Upload-Anspruch atomar (`state.py:338-349`, `uploader.py:24`)
+- [ ] 1.4 Neustart-/Testfoto-Auftrag genau einmal (`service.py:161,736-744`)
+- [ ] 1.5 SQLite `busy_timeout` (`state.py:51`)
+- [ ] 1.6 Asset-Temp-Datei eindeutig (`asset_sync.py:226`)
+- [ ] 1.7 `.env` atomar schreiben (`envfile.py:85`) + UTF-8 im Installer
+- [ ] 1.8 Startwege entwirren (`install_windows_service.ps1:14-33`,
+      `restart_service.ps1:8-9`) — Stop, warten, prüfen, Start
+- [ ] 1.9 Token-Selbstheilung drosseln und sichtbar machen (`service.py:246-258`)
+
+## AP-2 — Protokolle zuverlässig finden
+
+- [ ] 2.1 Vorgabe-Muster ergänzen (`samuel_neu`, `liftpic-sync\logs`, `terminal`)
+- [ ] 2.2 Selbsterkennung statt fester Muster; Deckel von 60 Dateien prüfen
+- [ ] 2.3 Generische Fragmente (`debug.log`, `errors.log`, `watchdog.log`)
+      nur mit Ordnerkontext werten
+- [ ] 2.4 Unbekanntes, fehlerfreies Protokoll nicht verwerfen
+- [ ] 2.5 `merge_key` ans Dashboard durchreichen
+
+## AP-3 — Keine erfundenen Zahlen
+
+- [ ] `photos_sold_today ?? 0`, `monitored_sources ?? 0`,
+      `restart_poll_seconds ?? 20`, `bar_anteil/karte_anteil ?? 0`
+
+## AP-4 — Asset-Sicherungs-Kreislauf
+
+- [ ] 4.1 Sicherung erst nach erfolgreichem Schreiben / Entdopplung
+- [ ] 4.2 `restart_needed` auswerten und im Dashboard zeigen
+- [ ] 4.3 Aufbewahrungsgrenze + einmaliges Aufräumen der 119 Altkopien
+- [ ] 4.4 Test für gesperrten Zielpfad
+
+## AP-5 — Merkmale aus der Ferne schalten
+
+- [ ] `config_to_env` um die neuen Schlüssel erweitern, aus `settings` gespeist,
+      ohne Zurücksetzen auf Vorgabewerte
+- [ ] (Super-Admin-Oberfläche wartet bewusst — wird gerade überarbeitet)
+
+## AP-6 — Rückweg und Versionierung
+
+- [ ] 6.1 Echte Version statt konstant `0.1.0`
+- [ ] 6.4 `scripts/update_liftpic.ps1` — stoppt sauber, sichert `.env`/`state`
+      inkl. `-wal`/`-shm`/Aufgabe, **koppelt nicht neu**, endet mit `preflight`
+- [ ] 6.5 `scripts/rollback_lokal.ps1` — Ordnersicherung zurück, ohne Git
+
+## AP-7 — Simulation (Tor zum Merge)
+
+- [ ] 1 Zweiter Agent von Hand → abgewiesen, beide Prozessnummern im Protokoll
+- [ ] 2 Sperrdatei auf SYSTEM-Rechte → weicht aus, meldet es
+- [ ] 3 Aufgabe **und** Dienst → Installer räumt die andere Startart ab
+- [ ] 4 Update bei laufendem Agenten → kein Enkelprozess übrig
+- [ ] 5 Neustart-Auftrag bei zwei Instanzen → genau ein Neustart
+- [ ] 6 Verkaufsprogramm klemmt → ehrliche Meldung, kein falscher Erfolg
+- [ ] 7 Kamera während Neustart weg → kein Testfoto ins Leere
+- [ ] 8 Protokolldatei umbenannt/verschoben → wird gefunden
+- [ ] 9 Fremde `debug.log` daneben → wird nicht zum Verkaufsprogramm
+- [ ] 10 Netz trennen → Ereignisse gepuffert, Wachhund greift
+- [ ] 11 `.env` mit Umlaut, Installer → Umlaut überlebt
+- [ ] 12 Rollback aus der Ordnersicherung → läuft wie vorher
+- [ ] 13 Asset mit gesperrter Zieldatei → eine Sicherung, Neustart-Hinweis
+- [ ] 14 Nach jedem Schritt: Foto → Upload → richtiger Park → Umsatz stimmt
+
+Vor und nach jedem Schritt vergleichen — muss identisch bleiben:
+`select * from park_photo_sales_daily where business_date >= current_date - 2`
+
+## Freigabe
+
+- [ ] Tag `v0.1.0-imst-stand` auf `d833ec0` (**vor** dem Merge!)
+- [ ] Härtung nach `main` mergen
+- [ ] Tag `v0.2.0-haertung` auf den neuen `main`
+
+## AP-8 — Imst (nach Betriebsschluss)
+
+- [ ] `preflight` aus einer Wegwerf-Kopie, rein lesend
+- [ ] Ordnersicherung anlegen
+- [ ] `update_liftpic.ps1`, ohne Neukopplung
+- [ ] 30 Minuten beobachten: Abholcode 2734 · Uploads · Gerätekacheln ·
+      keine Neustart-Knöpfe (Sitzung 0) · Umsatz unverändert
+- [ ] Merkmale einzeln aus der Ferne freischalten
+
+---
+
+## Bewusst nicht in diesem Vorhaben
+
+- **Park-Trennung**: alle fünf Parks liegen in einer Organisation, sieben
+  Mitglieder, der Zugriff hängt allein an der Mitgliedschaft. Echter Befund,
+  eigene Entscheidung, eigener Umfang.
+- **`css-alpine-pc2`**: Nummer 4488 ist im Park nicht registriert (dort: 2026).
+  Die Anlage läuft nicht und wird nicht angefasst.
+- **QR-Code aus dem Dashboard steuern**: `OFFENE_PUNKTE.md` Punkt 6.
