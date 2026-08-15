@@ -59,9 +59,18 @@ nicht eine Empfehlung.
       bleibt bis zur letzten Sekunde vollständig. Im Installer zusätzlich
       `ASCII` → `UTF8` beim Lesen **und** Schreiben: das Setzen eines einzigen
       Schlüssels machte vorher aus jedem Umlaut in *jeder* Zeile ein `?`.
-- [ ] 1.8 Startwege entwirren (`install_windows_service.ps1:14-33`,
-      `restart_service.ps1:8-9`) — Stop, warten, prüfen, Start
-- [ ] 1.9 Token-Selbstheilung drosseln und sichtbar machen (`service.py:246-258`)
+- [x] 1.8 Startwege entwirrt — `install_windows_service.ps1` räumt jetzt immer
+      die **andere** Startart ab (Dienst und Aufgabe liegen in getrennten
+      Namensräumen und hießen beide `LiftpicSync`), beendet laufende Agenten und
+      **wartet**, bis sie wirklich weg sind, statt sofort neu zu starten. Nimmt
+      das venv-Python statt `python` aus dem PATH. `restart_service.ps1` prüft
+      beide Startarten, warnt wenn es beide gibt, und startet erst nach
+      bestätigtem Ende des alten Prozesses.
+- [x] 1.9 Token-Selbstheilung begrenzt auf 10 Versuche (~20 min), danach ein
+      Fehlereintrag „Anmeldung am Server schlägt dauerhaft fehl" mit dem Hinweis
+      auf die häufigste Ursache. Vorher lief das endlos alle 120 s weiter — bei
+      zwei Instanzen entwerten sie sich das Token gegenseitig, und genau so sah
+      die 401-Störung aus.
 
 ## AP-2 — Protokolle zuverlässig finden
 

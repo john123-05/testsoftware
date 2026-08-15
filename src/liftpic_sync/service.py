@@ -37,6 +37,13 @@ log = logging.getLogger(__name__)
 AUFTRAG_MAX_ALTER_MINUTEN = 30
 
 
+# Wie oft sich der Automat hoechstens neu koppelt, bevor er aufgibt und es
+# meldet. Bei zwei Instanzen koppeln beide im Wechsel und entwerten sich das
+# Token gegenseitig - das lief frueher endlos alle 120 Sekunden weiter.
+# Zehn Versuche sind gut zwanzig Minuten; laenger ist es kein Aussetzer mehr.
+AUTH_REPARATUR_MAX = 10
+
+
 # Stoerungen, die ein laufender Prozess nicht heilen kann.
 #
 # Sonst gilt: laeuft das Programm noch, beschreibt eine Fehlerzeile ein Problem
@@ -149,6 +156,10 @@ class LiftpicService:
         # Throttle for the device-token self-repair so a bad token can't trigger
         # a re-pair on every single loop iteration.
         self._last_auth_repair = 0.0
+        # Wie oft die Selbstheilung schon vergeblich versucht wurde, und ob wir
+        # es bereits gemeldet haben (F-025).
+        self._auth_repairs = 0
+        self._auth_repair_gemeldet = False
         self._last_asset_sync = 0.0
         self._last_config_refresh = 0.0
         self._last_payment_scan = 0.0
@@ -253,6 +264,35 @@ class LiftpicService:
         now = time.time()
         if now - self._last_auth_repair < 120:
             return
+
+        # Nicht endlos neu koppeln (F-025).
+        #
+        # Bei zwei Instanzen koppeln beide im Wechsel und entwerten sich dabei
+        # gegenseitig das Token - alle 120 Sekunden, endlos. Genau so sah die
+        # wiederkehrende 401-Stoerung aus, und sie wurde monatelang als
+        # Serverproblem gelesen. Nach einigen erfolglosen Versuchen ist die
+        # Selbstheilung nicht mehr die Antwort; dann muss jemand hinsehen.
+        self._auth_repairs += 1
+        if self._auth_repairs > AUTH_REPARATUR_MAX:
+            if not self._auth_repair_gemeldet:
+                self._auth_repair_gemeldet = True
+                log.error(
+                    "auth self-repair: %d attempts without success - giving up; "
+                    "this looks like two agents invalidating each other's token",
+                    self._auth_repairs,
+                )
+                self.store.record_health_event(
+                    kind="uploader", severity="error",
+                    summary="Anmeldung am Server schlaegt dauerhaft fehl",
+                    detail=(
+                        f"Der Automat hat sich {self._auth_repairs}-mal neu "
+                        "gekoppelt und wird weiterhin abgewiesen. Haeufigste "
+                        "Ursache: ein zweiter Agent koppelt gegen denselben "
+                        "Datensatz und entwertet dabei das Token."
+                    ),
+                )
+            return
+
         self._last_auth_repair = now
         try:
             response = self.client.pair(self.settings.pairing_code)
@@ -263,6 +303,10 @@ class LiftpicService:
                 return
             write_env_values(self.env_path, config_to_env(config, device_token))
             self._apply_settings(Settings.from_env_file(self.env_path))
+            # Erfolgreich - der Zaehler beginnt von vorn, sonst wuerde eine
+            # Anlage nach ein paar echten Ausfaellen ueber Wochen aufgeben.
+            self._auth_repairs = 0
+            self._auth_repair_gemeldet = False
             log.warning(
                 "auth self-repair: re-paired and refreshed the device token after an upload auth failure"
             )
