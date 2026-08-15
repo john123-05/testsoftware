@@ -238,6 +238,22 @@ def main(argv: list[str] | None = None) -> int:
     service = LiftpicService(settings, env_path=args.env)
     try:
         if args.command == "run":
+            # Zweite, unabhaengige Absicherung (F-035).
+            #
+            # Die Dateisperre haengt an Dateirechten und hat genau dort ein
+            # Loch: ein erhoehter Agent haelt die Sperre unter ProgramData, ein
+            # normaler darf sie nicht oeffnen, weicht auf LOCALAPPDATA aus - und
+            # beide laufen. Am 16.08.2026 ist genau das passiert.
+            #
+            # Die Zustandsdatenbank ist der Ort, an dem sich zwei Agenten
+            # zwangslaeufig treffen: es ist die Ressource, um die es geht.
+            bekommen, fremde = service.store.besitz_anmelden(os.getpid())
+            if not bekommen:
+                log.error(
+                    "another liftpic-sync agent (pid %s) is working on this state "
+                    "database - exiting; this pid %s", fremde, os.getpid(),
+                )
+                return 0
             # Die Sperre haengt am offenen Handle: solange `sperre` referenziert
             # bleibt, bleibt sie gehalten.
             if sperre is not None and sperre.ungesichert:

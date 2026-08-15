@@ -343,3 +343,71 @@ def test_version_stimmt_ueberall_ueberein():
     daten = tomllib.loads(pyproject.read_text(encoding="utf-8"))
 
     assert daten["project"]["version"] == liftpic_sync.__version__
+
+
+# ---------------------------------------- Besitz an der Zustandsdatenbank
+
+def test_zweiter_agent_erkennt_den_ersten_ueber_die_datenbank(tmp_path: Path):
+    """Die Absicherung, die auch ohne Dateisperre haelt (F-035).
+
+    Am 16.08.2026 liefen zwei Agenten gleichzeitig: der erhoehte hielt die
+    Sperrdatei unter ProgramData, der normale durfte sie nicht oeffnen, wich auf
+    LOCALAPPDATA aus - und hielt seine eigene. Zwei Sperren, zwei Welten, beide
+    liefen und schrieben abwechselnd in dieselbe Datenbank.
+
+    Die Zustandsdatenbank ist der Ort, an dem sich zwei Agenten zwangslaeufig
+    treffen. Dateirechte spielen dabei keine Rolle.
+    """
+    from liftpic_sync.state import StateStore
+
+    db = tmp_path / "state.db"
+    a = StateStore(db)
+    b = StateStore(db)
+    try:
+        bekommen_a, fremd_a = a.besitz_anmelden(1111)
+        bekommen_b, fremd_b = b.besitz_anmelden(2222)
+
+        assert bekommen_a is True and fremd_a is None
+        assert bekommen_b is False, "der zweite Agent darf nicht arbeiten"
+        assert fremd_b == 1111, "und er muss sagen koennen, wer der erste ist"
+    finally:
+        a.close()
+        b.close()
+
+
+def test_derselbe_agent_darf_sich_erneut_anmelden(tmp_path: Path):
+    """Ein Neustart desselben Prozesses darf sich nicht selbst aussperren."""
+    from liftpic_sync.state import StateStore
+
+    store = StateStore(tmp_path / "state.db")
+    try:
+        assert store.besitz_anmelden(1111)[0] is True
+        assert store.besitz_anmelden(1111)[0] is True
+    finally:
+        store.close()
+
+
+def test_abgestuerzter_agent_gibt_den_platz_frei(tmp_path: Path):
+    """Sonst blockiert ein Absturz die Anlage, bis jemand von Hand aufraeumt."""
+    import time as _t
+
+    from liftpic_sync.state import StateStore
+
+    db = tmp_path / "state.db"
+    store = StateStore(db)
+    try:
+        store.besitz_anmelden(1111)
+        # Die Besitzmeldung altern lassen, als waere der Agent abgestuerzt.
+        veraltet = _t.time() - StateStore.BESITZ_GILT_SEKUNDEN - 10
+        store.conn.execute(
+            "UPDATE app_state SET value = ? WHERE key = 'besitzer'",
+            (f"1111|{veraltet}",),
+        )
+        store.conn.commit()
+
+        bekommen, fremd = store.besitz_anmelden(2222)
+
+        assert bekommen is True, "nach Ablauf darf ein neuer Agent uebernehmen"
+        assert fremd is None
+    finally:
+        store.close()

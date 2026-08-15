@@ -769,6 +769,23 @@ def _latest_signal_line(lines: list[str]) -> str | None:
 
 
 def _parse_line_time(line: str) -> str | None:
+    """Der Zeitpunkt aus einer Protokollzeile, als UTC (F-032).
+
+    Die Programme am Automaten schreiben ORTSZEIT: "15.08.2026 10:11:42" heisst
+    zehn nach zehn am Automaten. Frueher wurde diese Zahl mit
+    `tzinfo=timezone.utc` gestempelt - aus 10:11 Ortszeit wurde damit 10:11 UTC,
+    also 12:11 Ortszeit. Im Verlauf standen alle Ereignisse aus Protokollzeilen
+    zwei Stunden in der Zukunft (im Winter eine).
+
+    Harmlos fuer den Betrieb, aber es macht jede Nachforschung unbrauchbar: eine
+    Abfrage "was ist in der letzten halben Stunde passiert" zeigte Ereignisse,
+    die zwei Stunden alt waren - und verschwieg die echten. Genau darauf sind
+    wir am 15.08.2026 hereingefallen.
+
+    Deshalb wird ohne `tzinfo` gebaut - das ist Ortszeit - und mit
+    `astimezone` in UTC umgerechnet. Der Sommerzeit-Versatz kommt damit
+    automatisch richtig heraus, statt fest angenommen zu werden.
+    """
     match = TIMESTAMP_RE.search(line)
     if match:
         parts = {key: int(value) if value else 0 for key, value in match.groupdict().items()}
@@ -776,8 +793,8 @@ def _parse_line_time(line: str) -> str | None:
             return datetime(
                 parts["year"], parts["month"], parts["day"],
                 parts["hour"], parts["minute"], parts["second"],
-                parts["millis"] * 1000, tzinfo=timezone.utc,
-            ).isoformat()
+                parts["millis"] * 1000,
+            ).astimezone(timezone.utc).isoformat()
         except ValueError:
             return None
 
@@ -788,8 +805,7 @@ def _parse_line_time(line: str) -> str | None:
             return datetime(
                 parts["year"], parts["month"], parts["day"],
                 parts["hour"], parts["minute"], parts["second"],
-                tzinfo=timezone.utc,
-            ).isoformat()
+            ).astimezone(timezone.utc).isoformat()
         except ValueError:
             return None
     return None

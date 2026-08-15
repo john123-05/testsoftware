@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import time
@@ -9,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+
+log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 3
 
@@ -427,6 +430,66 @@ class StateStore:
                 [(anspruch, now, row["event_key"]) for row in rows],
             )
         return rows
+
+    # Wie lange die Besitzmeldung eines Agenten gilt. Laenger als sein
+    # Schleifentakt, kurz genug, dass ein abgestuerzter Agent den Platz zuegig
+    # freigibt.
+    BESITZ_GILT_SEKUNDEN = 90
+
+    def besitz_anmelden(self, pid: int) -> tuple[bool, int | None]:
+        """Diese Instanz als die arbeitende eintragen (F-035).
+
+        Rueckgabe `(bekommen, fremde_pid)`.
+
+        Warum das noetig ist, obwohl es die Dateisperre gibt: die Sperre haengt
+        an Dateirechten. Am 16.08.2026 lief ein erhoehter Agent, der
+        `C:\\ProgramData\\...\\singleton.lock` halten durfte, neben einem
+        normalen, der darauf keinen Zugriff hatte und deshalb auf
+        `%LOCALAPPDATA%` auswich. Zwei Sperren, zwei Welten - beide liefen.
+
+        Die Zustandsdatenbank ist der Ort, an dem sich zwei Agenten
+        zwangslaeufig treffen: es ist genau die Ressource, um die es geht. Wer
+        hier eintraegt, arbeitet; wer einen frischen fremden Eintrag vorfindet,
+        beendet sich. Ein abgestuerzter Agent gibt den Platz nach
+        BESITZ_GILT_SEKUNDEN von selbst frei - ohne dass jemand aufraeumen muss.
+        """
+        jetzt = time.time()
+        with self.conn:
+            zeile = self.conn.execute(
+                "SELECT value FROM app_state WHERE key = 'besitzer'"
+            ).fetchone()
+            if zeile:
+                try:
+                    fremde_pid_text, seit_text = str(zeile["value"]).split("|", 1)
+                    fremde_pid, seit = int(fremde_pid_text), float(seit_text)
+                except (ValueError, TypeError):
+                    fremde_pid, seit = None, 0.0
+                if (
+                    fremde_pid is not None
+                    and fremde_pid != pid
+                    and jetzt - seit < self.BESITZ_GILT_SEKUNDEN
+                ):
+                    return False, fremde_pid
+            self.conn.execute(
+                "INSERT INTO app_state(key, value, updated_at) VALUES ('besitzer', ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_at = excluded.updated_at",
+                (f"{pid}|{jetzt}", jetzt),
+            )
+        return True, None
+
+    def besitz_auffrischen(self, pid: int) -> None:
+        """Bestaetigen, dass wir noch da sind. Bei jedem Durchlauf."""
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO app_state(key, value, updated_at) VALUES ('besitzer', ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                    "updated_at = excluded.updated_at",
+                    (f"{pid}|{time.time()}", time.time()),
+                )
+        except sqlite3.Error as exc:
+            log.warning("could not refresh ownership marker: %s", exc)
 
     def auftrag_beanspruchen(self, request_id: str) -> bool:
         """Diesen Auftrag genau einmal ausfuehren duerfen (F-025).

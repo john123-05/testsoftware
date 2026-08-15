@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import time
@@ -213,7 +214,12 @@ class LiftpicService:
             self.settings.watchdog_seconds,
         )
         self._last_heartbeat_ok = time.time()
+        eigene_pid = os.getpid()
         while True:
+            # Bestaetigen, dass wir noch arbeiten, damit ein spaeter startender
+            # Agent uns sieht und sich beendet (F-035). Ein abgestuerzter Agent
+            # hoert damit auf und gibt den Platz von selbst frei.
+            self.store.besitz_auffrischen(eigene_pid)
             self._refresh_config_if_due()
             try:
                 self.run_once()

@@ -28,8 +28,39 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-035 — Die Ausweichsperre aus AP-1.1 erlaubte zwei Agenten
+Status:     behoben (16.08.2026) — **selbst verursacht**
+Gesehen:    16.08.2026 00:36, auf dem Testrechner
+Beleg:      Zwei Agenten liefen gleichzeitig und schrieben abwechselnd:
+            `00:36:02 pid=18072 … 00:36:05 pid=18876 … 00:36:08 pid=18072`
+            `pid=18876` seit 23:42:42 erhöht gestartet, `pid=18072` seit
+            00:34:01 normal.
+Ursache:    Der Ausweichpfad, den ich in AP-1.1 eingebaut habe. Der **erhöhte**
+            Agent darf `C:\ProgramData\…\singleton.lock` öffnen und hält sie;
+            der **normale** darf es nicht, weicht auf `%LOCALAPPDATA%` aus und
+            hält seine eigene. Zwei Sperren, zwei Welten, kein gegenseitiges
+            Sehen.
+
+            Die Ausweichlösung sollte verhindern, dass ein Rechteproblem eine
+            Anlage stilllegt (das war die bewusste Entscheidung zu F-024). Sie
+            hat stattdessen ein zweites Schlupfloch aufgemacht. Bei Imst wäre
+            das der Normalfall: dort läuft der Agent als SYSTEM, ein Handstart
+            daneben fällt genau hinein.
+Behebung:   Zweite, unabhängige Absicherung, die nicht an Dateirechten hängt:
+            eine Besitzmeldung in der **Zustandsdatenbank**. Sie ist der Ort, an
+            dem sich zwei Agenten zwangsläufig treffen — es ist genau die
+            Ressource, um die es geht. Wer einen frischen fremden Eintrag
+            vorfindet, beendet sich und nennt die fremde Prozessnummer.
+            Aufgefrischt bei jedem Durchlauf; nach 90 Sekunden ohne
+            Auffrischung ist der Platz frei, ein Absturz blockiert also nichts.
+            Die Dateisperre bleibt als erste Verteidigung. Fünf Tests.
+Wiederkehr: —
+            **Lehre:** Eine Absicherung, die im Fehlerfall „lieber
+            weiterlaufen" sagt, braucht eine zweite Absicherung auf einer
+            anderen Ebene. Sonst ist der Fehlerfall die Lücke.
+
 ## F-032 — Zeitstempel im Verlauf sind um zwei Stunden verschoben
-Status:     offen
+Status:     behoben (16.08.2026)
 Gesehen:    15.08.2026, mehrfach — zuletzt beim Nachprüfen der Szenarien
 Beleg:      Ein Ereignis mit `occurred_at` = 16.08. 01:32:46 trägt im Text
             `2026-08-15 23:32:46`. Die Protokollzeile nennt Ortszeit, abgelegt
@@ -42,8 +73,10 @@ Folge:      Harmlos für den Betrieb, aber jede Nachforschung im Verlauf wird
             angebliche frische Fehler, die in Wahrheit zwei Stunden alt waren —
             beinahe hätte ich daraus geschlossen, die Behebung von F-031 habe
             nicht gewirkt.
-Behebung:   offen. **Vor dem Imst-Rollout beheben** — dort ist der Verlauf das
-            einzige Fenster, das wir auf die Anlage haben.
+Behebung:   `_parse_line_time` baut den Zeitpunkt jetzt **ohne** `tzinfo` — das
+            ist Ortszeit — und rechnet mit `astimezone` nach UTC um. Der
+            Sommerzeit-Versatz kommt damit automatisch richtig heraus, statt
+            fest angenommen zu werden. Zwei Tests, für beide Zeilenformate.
 Wiederkehr: —
 
 ## F-033 — Ein erhöht laufender Agent ist für eine normale Sitzung unsichtbar

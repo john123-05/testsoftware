@@ -484,3 +484,45 @@ def test_unknown_logs_of_same_kind_stay_separate(tmp_path: Path):
 
     assert len(devices) == 2
     assert {d.tech for d in devices} == {"eins.log", "zwei.log"}
+
+
+def test_zeitstempel_aus_protokollzeile_ist_ortszeit(tmp_path: Path):
+    """Protokollzeilen tragen ORTSZEIT, nicht UTC (F-032).
+
+    Frueher wurde die Zahl aus der Zeile mit tzinfo=utc gestempelt: aus
+    10:11 Ortszeit wurde 10:11 UTC, also 12:11 Ortszeit. Im Verlauf standen
+    alle Ereignisse aus Protokollzeilen zwei Stunden in der Zukunft - und eine
+    Abfrage "was ist in der letzten halben Stunde passiert" zeigte Altes und
+    verschwieg das Echte.
+    """
+    from datetime import datetime, timezone
+
+    from liftpic_sync.operational_monitor import _parse_line_time
+
+    roh = _parse_line_time("15.08.2026 10:11:42\tDevice lost")
+    assert roh is not None
+    gelesen = datetime.fromisoformat(roh)
+
+    # Zurueck in Ortszeit muss wieder 10:11:42 herauskommen.
+    zurueck = gelesen.astimezone()
+    assert (zurueck.hour, zurueck.minute, zurueck.second) == (10, 11, 42), (
+        f"aus 10:11:42 Ortszeit wurde {zurueck:%H:%M:%S} - der Versatz ist zurueck"
+    )
+    assert gelesen.tzinfo is not None, "der Zeitpunkt muss eine Zeitzone tragen"
+
+    # Und er darf nicht in der Zukunft liegen, wenn die Zeile aus der
+    # Vergangenheit stammt.
+    vergangen = _parse_line_time("01.01.2020 08:00:00 irgendwas")
+    assert datetime.fromisoformat(vergangen) < datetime.now(timezone.utc)
+
+
+def test_zeitstempel_im_iso_format_ebenfalls_ortszeit():
+    """Dieselbe Regel fuer Zeilen im ISO-Format."""
+    from datetime import datetime
+
+    from liftpic_sync.operational_monitor import _parse_line_time
+
+    roh = _parse_line_time("2026-08-15 10:11:42 WARNING irgendwas")
+    zurueck = datetime.fromisoformat(roh).astimezone()
+
+    assert (zurueck.hour, zurueck.minute) == (10, 11)
