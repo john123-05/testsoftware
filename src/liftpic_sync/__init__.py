@@ -1,4 +1,4 @@
-﻿"""Liftpic Sync package."""
+"""Liftpic Sync package."""
 
 # Die Version, die im Herzschlag landet und im Dashboard steht.
 #
