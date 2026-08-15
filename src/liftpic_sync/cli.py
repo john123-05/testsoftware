@@ -32,6 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run", parents=[env_parent], help="Run forever")
     sub.add_parser("scan-once", parents=[env_parent], help="Scan and upload one iteration")
     sub.add_parser("health", parents=[env_parent], help="Print local health JSON")
+    sub.add_parser(
+        "preflight", parents=[env_parent],
+        help="Show what this PC looks like before switching anything (read-only)",
+    )
     sub.add_parser("assets", parents=[env_parent], help="Download dashboard-managed local assets once")
     pair = sub.add_parser("pair", parents=[env_parent], help="Pair this PC with a dashboard config")
     pair.add_argument("--code", required=True, help="Pairing code from the staff Liftpic Setup page")
@@ -85,6 +89,27 @@ def _acquire_single_instance_lock(lock_path: Path):
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = Settings.from_env_file(args.env)
+
+    if args.command == "preflight":
+        # Bewusst VOR ensure_dirs und configure_logging: der Bericht soll den
+        # PC so zeigen, wie er ist, und dabei weder Ordner anlegen noch in ein
+        # Protokoll schreiben. Auch die Code-Vorschrift wird angewandt, damit
+        # dort steht, was im Betrieb wirklich gelten wuerde.
+        #
+        # Protokollausgaben werden dabei stummgeschaltet: die Abweichung der
+        # Kundennummer steht im Bericht selbst, deutlicher als eine Warnzeile
+        # quer durch die Ausgabe.
+        import logging
+
+        from .preflight import bericht
+
+        logging.disable(logging.CRITICAL)
+        try:
+            print(bericht(settings.with_viewer_recipe()))
+        finally:
+            logging.disable(logging.NOTSET)
+        return 0
+
     settings.ensure_dirs()
     configure_logging(settings)
 

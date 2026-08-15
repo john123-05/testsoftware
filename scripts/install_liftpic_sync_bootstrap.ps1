@@ -136,6 +136,44 @@ function Ensure-BaseEnv {
     OPERATIONAL_LOG_TAIL_LINES    = "80"
     OPERATIONAL_LOG_STALE_MINUTES = "240"
     OPERATIONAL_LOG_DEFUNCT_MINUTES = "2880"
+
+    # --- Ab hier Merkmale, die eine bestehende Anlage NICHT veraendern duerfen.
+    #
+    # Diese Werte werden bei einer Aktualisierung nur ERGAENZT, wenn der
+    # Schluessel fehlt. Alle stehen bewusst auf "aus" bzw. leer: eine laufende
+    # Anlage soll nach dem Update exakt dasselbe tun wie vorher. Eingeschaltet
+    # wird einzeln und bewusst, nachdem `preflight` gezeigt hat, was da ist.
+
+    # Uebernahme der Code-Vorschrift aus der Settings.xml des Verkaufsprogramms.
+    # AUS, weil eine abweichende Kundennummer die Fotos in einen fremden Park
+    # schiebt - der Server leitet den Park aus genau dieser Nummer ab.
+    VIEWER_RECIPE_ENABLED         = "false"
+
+    # Neustart- und Testfoto-Knoepfe. Ohne hinterlegte Programme erscheint
+    # ohnehin nichts; der Schalter ist die zusaetzliche Bremse.
+    VIEWER_RESTART_ENABLED        = "false"
+    VIEWER_EXE                    = ""
+    CAMERA_EXE                    = ""
+    LIGHTBARRIER_EXE              = ""
+    TEST_PHOTO_EXE                = ""
+    VIEWER_SETTINGS_XML           = ""
+    VIEWER_NIGHT_START            = "23:30"
+    VIEWER_NIGHT_END              = "05:00"
+    RESTART_POLL_SECONDS          = "20"
+
+    # Direktmessungen am PC (Prozesse, Drucker, Uhrzeit). Harmlos und nur
+    # lesend, deshalb an.
+    PROBE_ENABLED                 = "true"
+    TERMINAL_HOST                 = ""
+    TERMINAL_PORT                 = "22000"
+    EXPECTED_COM_PORTS            = ""
+
+    # Bargeld und Karte. Ohne Pfade entfaellt die Auswertung vollstaendig.
+    COIN_STATS_FILE               = ""
+    COIN_LOG_GLOB                 = ""
+    CARD_LOG_GLOB                 = ""
+    COIN_LOW_COUNT                = "10"
+    PAYMENT_DAYS                  = "7"
   }
 
   if (-not (Test-Path $EnvPath)) {

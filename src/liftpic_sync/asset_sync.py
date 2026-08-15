@@ -17,12 +17,37 @@ from .supabase_client import SupabaseIngestClient
 log = logging.getLogger(__name__)
 
 
+def _is_locked_target(exc: Exception) -> bool:
+    """Whether this failure is 'the target file is currently in use'.
+
+    Windows reports this in three flavours on the atomic rename: WinError 32
+    (sharing violation), 33 (lock violation) and - the one the kiosk viewer
+    actually produces on a file it keeps open - 5 (access denied).
+    """
+    winerror = getattr(exc, "winerror", None)
+    if winerror in (5, 32, 33):
+        return True
+    text = str(exc).lower()
+    return (
+        "used by another process" in text
+        or "wird von einem anderen prozess" in text
+        or "zugriff verweigert" in text
+        or "access is denied" in text
+    )
+
+
 @dataclass(frozen=True)
 class AssetSyncResult:
     fetched: int = 0
     applied: int = 0
     skipped: int = 0
     failed: int = 0
+    # Restart order handed down by the dashboard, passed through untouched for
+    # the service to act on. None when nothing is pending.
+    restart_request: dict[str, Any] | None = None
+    # True when a slot whose file could not be replaced is still waiting - the
+    # viewer holds the target open, so the swap needs a restart first.
+    restart_needed: bool = False
 
 
 class AssetSyncWorker:
@@ -39,14 +64,14 @@ class AssetSyncWorker:
         self.client = client or SupabaseIngestClient(settings)
         self.allowed_roots = tuple(settings.asset_allowed_roots)
 
-    def sync_once(self) -> AssetSyncResult:
-        response = self.client.assets()
+    def sync_once(self, restart_ack: str | None = None) -> AssetSyncResult:
+        response = self.client.assets(restart_ack=restart_ack)
         assets = response.get("assets") or []
         if not isinstance(assets, list):
             raise RuntimeError("liftpic-assets did not return an assets list")
 
-        result = AssetSyncResult(fetched=len(assets))
         applied = skipped = failed = 0
+        restart_needed = False
         for asset in assets:
             if not isinstance(asset, dict):
                 failed += 1
@@ -59,14 +84,27 @@ class AssetSyncWorker:
                     skipped += 1
             except Exception as exc:
                 failed += 1
+                # A locked target means the viewer holds the file open (the
+                # classic case: hintergrund.png). That is not a broken asset,
+                # it just needs the viewer restarted before it can be swapped.
+                if _is_locked_target(exc):
+                    restart_needed = True
+                    log.info(
+                        "asset '%s' is in use by the viewer - needs a restart before it can be replaced",
+                        asset.get("slot") or asset.get("target_path"),
+                    )
+                else:
+                    log.warning("asset sync failed: %s", exc)
                 self._record_failure(asset, str(exc))
-                log.warning("asset sync failed: %s", exc)
 
+        restart_request = response.get("restart_request")
         return AssetSyncResult(
-            fetched=result.fetched,
+            fetched=len(assets),
             applied=applied,
             skipped=skipped,
             failed=failed,
+            restart_request=restart_request if isinstance(restart_request, dict) else None,
+            restart_needed=restart_needed,
         )
 
     def _sync_asset(self, asset: dict[str, Any]) -> str:

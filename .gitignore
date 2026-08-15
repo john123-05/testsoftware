@@ -17,6 +17,9 @@ dist/
 *.db-wal
 logs/
 *.log
+# Laufzeitdaten einer installierten Anlage - gehoeren nie ins Repo.
+state/
+backups/
 *.part
 *.tmp
 .coverage

@@ -4,7 +4,7 @@ import json
 import sqlite3
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -211,6 +211,30 @@ class StateStore:
             """
             CREATE INDEX IF NOT EXISTS asset_deployments_status_idx
             ON asset_deployments(status, applied_at)
+            """
+        )
+        # Health notes that must survive an outage. Without this, everything a
+        # PC noticed while the connection was down was lost: the heartbeat only
+        # wrote to the local log file and the server never learned that anything
+        # had happened, let alone why. Entries are buffered here and delivered
+        # with the first heartbeat that gets through.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS health_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                occurred_at TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                detail TEXT,
+                delivered INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS health_events_undelivered_idx
+            ON health_events(delivered, occurred_at)
             """
         )
         if cur.execute("SELECT COUNT(*) FROM schema_state").fetchone()[0] == 0:
@@ -610,6 +634,102 @@ class StateStore:
             ),
         )
         self.conn.commit()
+
+    def get_app_state(self, key: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT value FROM app_state WHERE key = ?", (key,)
+        ).fetchone()
+        return str(row[0]) if row else None
+
+    def set_app_state(self, key: str, value: str | None) -> None:
+        """Remember a small piece of state across restarts.
+
+        Used for facts that must outlive the process - an ongoing outage, for
+        instance: if the agent is restarted mid-outage (power cut, watchdog),
+        an in-memory marker would be gone and the reconnect could never report
+        how long the machine was cut off.
+        """
+        try:
+            if value is None:
+                self.conn.execute("DELETE FROM app_state WHERE key = ?", (key,))
+            else:
+                self.conn.execute(
+                    """
+                    INSERT INTO app_state(key, value, updated_at) VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                                   updated_at = excluded.updated_at
+                    """,
+                    (key, value, time.time()),
+                )
+            self.conn.commit()
+        except sqlite3.Error:
+            pass
+
+    def record_health_event(
+        self,
+        kind: str,
+        severity: str,
+        summary: str,
+        detail: str | None = None,
+        occurred_at: str | None = None,
+    ) -> None:
+        """Note something worth telling the server, even if it is unreachable.
+
+        Deliberately fire-and-forget: a health note must never be able to break
+        the loop that produced it.
+        """
+        try:
+            self.conn.execute(
+                """
+                INSERT INTO health_events(occurred_at, kind, severity, summary, detail)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    occurred_at or datetime.now(timezone.utc).isoformat(),
+                    kind,
+                    severity,
+                    summary[:500],
+                    (detail or "")[:2000] or None,
+                ),
+            )
+            self.conn.commit()
+        except sqlite3.Error:
+            pass
+
+    def undelivered_health_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT id, occurred_at, kind, severity, summary, detail
+            FROM health_events
+            WHERE delivered = 0
+            ORDER BY occurred_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_health_events_delivered(self, ids: list[int]) -> None:
+        if not ids:
+            return
+        placeholders = ",".join("?" for _ in ids)
+        self.conn.execute(
+            f"UPDATE health_events SET delivered = 1 WHERE id IN ({placeholders})",
+            ids,
+        )
+        # Keep the buffer from growing without bound; delivered notes older than
+        # a week have served their purpose.
+        self.conn.execute(
+            "DELETE FROM health_events WHERE delivered = 1 AND occurred_at < ?",
+            ((datetime.now(timezone.utc) - timedelta(days=7)).isoformat(),),
+        )
+        self.conn.commit()
+
+    def pending_health_event_count(self) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM health_events WHERE delivered = 0"
+        ).fetchone()
+        return int(row[0]) if row else 0
 
     def asset_counts(self) -> dict[str, int]:
         rows = self.conn.execute(

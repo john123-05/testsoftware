@@ -50,11 +50,16 @@ class SupabaseIngestClient:
     def status(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._post_json("liftpic-status", payload)
 
-    def assets(self) -> dict[str, Any]:
-        return self._post_json(
-            "liftpic-assets",
-            {"camera_code": self.settings.camera_code},
-        )
+    def assets(self, restart_ack: str | None = None) -> dict[str, Any]:
+        """Poll for dashboard-managed assets, optionally acknowledging a restart.
+
+        `restart_ack` carries the id of a restart order this PC has just carried
+        out; the server clears it so the order is not executed twice.
+        """
+        payload: dict[str, Any] = {"camera_code": self.settings.camera_code}
+        if restart_ack:
+            payload["restart_ack"] = restart_ack
+        return self._post_json("liftpic-assets", payload)
 
     def pair(self, pairing_code: str) -> dict[str, Any]:
         return self._post_json(

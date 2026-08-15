@@ -13,8 +13,12 @@ class FakeAssetClient:
         self._assets = assets
         self.payload = payload
         self.downloads = 0
+        self.last_restart_ack: str | None = None
 
-    def assets(self) -> dict[str, object]:
+    def assets(self, restart_ack: str | None = None) -> dict[str, object]:
+        # Mirrors the real client, which now also carries the acknowledgement of
+        # a completed viewer restart back to the server.
+        self.last_restart_ack = restart_ack
         return {"assets": self._assets}
 
     def download_signed_url(self, signed_url: str) -> bytes:
