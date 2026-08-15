@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 import time
 from dataclasses import dataclass
@@ -56,6 +57,21 @@ log = logging.getLogger(__name__)
 GRACEFUL_SECONDS = 10.0
 # Pause between stopping and starting, so file handles are really released.
 RESTART_PAUSE_SECONDS = 3.0
+
+# Woran man im Kameraprotokoll sieht, ob die Kamera wirklich am Programm haengt.
+#
+# 3GerTis liest beim Verbinden die Grenzwerte AUS DER KAMERA aus und schreibt sie
+# mit dem Zusatz "(from cam)". Kommen diese Zeilen, war die Kamera erreichbar -
+# im Gegensatz zu "(from ini)", das nur die eigene Konfigurationsdatei
+# wiedergibt und auch ohne Kamera erscheint.
+KAMERA_VERBUNDEN_RE = re.compile(r"\(from cam\)", re.IGNORECASE)
+KAMERA_VERLOREN_RE = re.compile(r"device lost|geraet verloren|gerät verloren", re.IGNORECASE)
+
+# Wie lange die Kamera nach einem Neustart braucht, bis sie wieder da ist.
+# Am 15.08.2026 gemessen: Neustart 11:32:27, verbunden 11:38:55 - also gut
+# sechseinhalb Minuten. Ein Testfoto 76 Sekunden nach dem Neustart lief deshalb
+# ins Leere, obwohl beides in Ordnung war.
+KAMERA_ANLAUF_MINUTEN = 8
 
 
 @dataclass(frozen=True)
@@ -367,6 +383,67 @@ def _neueste_datei(ordner: Path | None) -> float:
     return neueste
 
 
+def _kameraprotokoll(settings: Settings) -> Path | None:
+    """Die Protokolldatei der Kamera-Software, neben ihrem Programm."""
+    exe = settings.camera_exe
+    if exe is None:
+        return None
+    ordner = exe.parent
+    bevorzugt = ordner / "3gerlog.txt"
+    if bevorzugt.exists():
+        return bevorzugt
+    try:
+        kandidaten = [p for p in ordner.glob("*.txt") if p.is_file()]
+    except OSError:
+        return None
+    if not kandidaten:
+        return None
+    return max(kandidaten, key=lambda p: p.stat().st_mtime)
+
+
+def kamera_ist_verbunden(settings: Settings) -> tuple[bool | None, float | None]:
+    """Haengt die Kamera gerade am Programm? Und seit wann steht es so?
+
+    Rueckgabe `(zustand, minuten_her)`. `None` heisst "nicht feststellbar" - kein
+    Protokoll gefunden, kein Vermerk darin. Das ist ausdruecklich nicht dasselbe
+    wie "nicht verbunden": ohne Anhaltspunkt wird nichts behauptet und der
+    Auslöser laeuft wie bisher.
+
+    Gelesen wird von hinten, die juengste Aussage gewinnt. Ein "Device lost" von
+    heute frueh sagt nichts mehr, wenn danach wieder "(from cam)" kam.
+    """
+    protokoll = _kameraprotokoll(settings)
+    if protokoll is None:
+        return None, None
+    try:
+        zeilen = protokoll.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None, None
+
+    for zeile in reversed(zeilen[-400:]):
+        verbunden = bool(KAMERA_VERBUNDEN_RE.search(zeile))
+        verloren = bool(KAMERA_VERLOREN_RE.search(zeile))
+        if not (verbunden or verloren):
+            continue
+        alter = None
+        zeitpunkt = _zeit_aus_zeile(zeile)
+        if zeitpunkt is not None:
+            alter = max(0.0, (datetime.now() - zeitpunkt).total_seconds() / 60.0)
+        return verbunden, alter
+    return None, None
+
+
+def _zeit_aus_zeile(zeile: str) -> datetime | None:
+    """Der Zeitstempel am Zeilenanfang, im Format der Kamera-Software."""
+    treffer = re.match(r"\s*(\d{2}\.\d{2}\.\d{4})[ \t]+(\d{2}:\d{2}:\d{2})", zeile)
+    if not treffer:
+        return None
+    try:
+        return datetime.strptime(f"{treffer.group(1)} {treffer.group(2)}", "%d.%m.%Y %H:%M:%S")
+    except ValueError:
+        return None
+
+
 def trigger_test_photo(settings: Settings) -> RestartOutcome:
     """Ein Testfoto ausloesen - denselben Weg wie die Lichtschranke.
 
@@ -386,6 +463,26 @@ def trigger_test_photo(settings: Settings) -> RestartOutcome:
         )
     if not exe.exists():
         return RestartOutcome(False, f"Auslöseprogramm nicht gefunden: {exe}")
+
+    # Erst nachsehen, ob die Kamera ueberhaupt am Programm haengt. Sonst wartet
+    # man eine halbe Minute auf eine Antwort, die vorher schon feststand - und
+    # bekommt am Ende "Kamera hat nicht reagiert", ohne zu erfahren, warum.
+    verbunden, seit_minuten = kamera_ist_verbunden(settings)
+    if verbunden is False:
+        if seit_minuten is not None and seit_minuten < KAMERA_ANLAUF_MINUTEN:
+            return RestartOutcome(
+                False,
+                "Die Kamera-Software wurde gerade neu gestartet und hat die "
+                f"Kamera noch nicht gefunden (seit {int(seit_minuten)} min). "
+                f"Das dauert bis zu {KAMERA_ANLAUF_MINUTEN} Minuten - danach "
+                "noch einmal auslösen.",
+            )
+        return RestartOutcome(
+            False,
+            "Die Kamera ist nicht mit der Kamera-Software verbunden. Ein "
+            "Testfoto kann so nicht entstehen. Zuerst die Kamera-Software neu "
+            "starten und einige Minuten warten, bis sie wieder verbunden ist.",
+        )
 
     vorher_roh = _neueste_datei(settings.raw_dir)
     vorher_fertig = _neueste_datei(settings.qrcode_dir or settings.processed_dir)

@@ -7,10 +7,97 @@ jemand den Pfad aus dem Auftrag uebernimmt.
 """
 from pathlib import Path
 
+from datetime import datetime, timedelta
+
 from liftpic_sync.config import Settings
 from liftpic_sync.viewer_control import (
-    find_program, restart_program, restartable_programs,
+    find_program, kamera_ist_verbunden, restart_program, restartable_programs,
+    trigger_test_photo,
 )
+
+
+def _kameraordner(tmp_path: Path, zeilen: list[str]) -> Path:
+    """Ein 3GerTis-Ordner mit Programm und Protokoll."""
+    ordner = tmp_path / "3GerTis"
+    ordner.mkdir(exist_ok=True)
+    exe = ordner / "3gerTis_v70.exe"
+    exe.write_bytes(b"MZ")
+    (ordner / "3gerlog.txt").write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+    return exe
+
+
+def _stempel(minuten_her: float) -> str:
+    return (datetime.now() - timedelta(minutes=minuten_her)).strftime("%d.%m.%Y\t%H:%M:%S")
+
+
+def test_kamera_gilt_als_verbunden_nach_from_cam(tmp_path: Path):
+    """"(from cam)" heisst: die Werte kamen aus der Kamera, sie war erreichbar.
+
+    "(from ini)" erscheint auch ohne Kamera - nur aus der Konfigurationsdatei -
+    und darf deshalb nicht als Verbindung zaehlen.
+    """
+    exe = _kameraordner(tmp_path, [
+        f"{_stempel(20)}\tDevice lost",
+        f"{_stempel(5)}\tGain (from ini) min=0, Gain max=4000000",
+        f"{_stempel(5)}\tGain (from cam) min=0, Gain max=480",
+    ])
+    zustand, alter = kamera_ist_verbunden(make_settings(tmp_path, camera_exe=exe))
+
+    assert zustand is True
+    assert alter is not None and alter < 10
+
+
+def test_juengste_aussage_gewinnt(tmp_path: Path):
+    """Ein alter Geraeteverlust zaehlt nicht mehr, wenn danach verbunden wurde -
+    und umgekehrt."""
+    exe = _kameraordner(tmp_path, [
+        f"{_stempel(60)}\tGain (from cam) min=0, Gain max=480",
+        f"{_stempel(30)}\tDevice lost",
+    ])
+    zustand, _ = kamera_ist_verbunden(make_settings(tmp_path, camera_exe=exe))
+    assert zustand is False
+
+
+def test_ohne_protokoll_wird_nichts_behauptet(tmp_path: Path):
+    """Kein Anhaltspunkt heisst "unbekannt", nicht "nicht verbunden"."""
+    ordner = tmp_path / "leer"
+    ordner.mkdir()
+    exe = ordner / "3gerTis_v70.exe"
+    exe.write_bytes(b"MZ")
+
+    zustand, alter = kamera_ist_verbunden(make_settings(tmp_path, camera_exe=exe))
+
+    assert zustand is None
+    assert alter is None
+
+
+def test_testfoto_wartet_nicht_auf_eine_fehlende_kamera(tmp_path: Path):
+    """Ist die Kamera nachweislich weg, wird gar nicht erst ausgeloest.
+
+    Am 15.08.2026 lief ein Testfoto 76 Sekunden nach dem Neustart der
+    Kamera-Software ins Leere; die Kamera meldete sich erst 6,5 Minuten nach
+    dem Start zurueck. Die Meldung nannte nur "Kamera hat nicht reagiert" -
+    ohne den Grund und ohne den Hinweis, dass Warten genuegt.
+    """
+    ausloeser = tmp_path / "AidaTest.exe"
+    ausloeser.write_bytes(b"MZ")
+
+    # Gerade neu gestartet, Kamera noch nicht da: bitte warten.
+    exe = _kameraordner(tmp_path, [f"{_stempel(2)}\tDevice lost"])
+    frisch = trigger_test_photo(make_settings(
+        tmp_path, camera_exe=exe, test_photo_exe=ausloeser,
+    ))
+    assert frisch.performed is False
+    assert "neu gestartet" in frisch.reason
+    assert "8 Minuten" in frisch.reason
+
+    # Laenger weg: dann ist Warten keine Antwort mehr.
+    exe = _kameraordner(tmp_path, [f"{_stempel(90)}\tDevice lost"])
+    lange = trigger_test_photo(make_settings(
+        tmp_path, camera_exe=exe, test_photo_exe=ausloeser,
+    ))
+    assert lange.performed is False
+    assert "neu starten" in lange.reason
 
 
 def make_settings(tmp_path: Path, **extra) -> Settings:
