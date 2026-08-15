@@ -65,8 +65,14 @@ function Set-EnvValue {
     [string]$Value
   )
 
+  # UTF-8 lesen und schreiben, nicht ASCII.
+  #
+  # Frueher stand hier -Encoding ASCII beim Schreiben: das Setzen EINES
+  # Schluessels schrieb die ganze Datei neu und machte dabei aus jedem
+  # Nicht-ASCII-Zeichen in JEDER Zeile ein Fragezeichen. Ein Pfad mit Umlaut
+  # oder eine Bezeichnung mit "ss" ueberlebte keine Neuinstallation.
   $existing = @()
-  if (Test-Path $EnvPath) { $existing = @(Get-Content -Path $EnvPath) }
+  if (Test-Path $EnvPath) { $existing = @(Get-Content -Path $EnvPath -Encoding UTF8) }
 
   $pattern = "^\s*$([regex]::Escape($Key))\s*="
   $replaced = $false
@@ -81,7 +87,11 @@ function Set-EnvValue {
   if (-not $replaced) { $output = @($output) + "$Key=$Value" }
 
   New-Item -ItemType Directory -Force -Path (Split-Path $EnvPath -Parent) | Out-Null
-  Set-Content -Path $EnvPath -Value $output -Encoding ASCII
+  # Erst daneben schreiben, dann ersetzen - der laufende Agent liest dieselbe
+  # Datei, und der Installer haelt ihn nicht an.
+  $temp = "$EnvPath.installer.tmp"
+  Set-Content -Path $temp -Value $output -Encoding UTF8
+  Move-Item -Path $temp -Destination $EnvPath -Force
 }
 
 function Ensure-BaseEnv {
@@ -136,6 +146,44 @@ function Ensure-BaseEnv {
     OPERATIONAL_LOG_TAIL_LINES    = "80"
     OPERATIONAL_LOG_STALE_MINUTES = "240"
     OPERATIONAL_LOG_DEFUNCT_MINUTES = "2880"
+
+    # --- Ab hier Merkmale, die eine bestehende Anlage NICHT veraendern duerfen.
+    #
+    # Diese Werte werden bei einer Aktualisierung nur ERGAENZT, wenn der
+    # Schluessel fehlt. Alle stehen bewusst auf "aus" bzw. leer: eine laufende
+    # Anlage soll nach dem Update exakt dasselbe tun wie vorher. Eingeschaltet
+    # wird einzeln und bewusst, nachdem `preflight` gezeigt hat, was da ist.
+
+    # Uebernahme der Code-Vorschrift aus der Settings.xml des Verkaufsprogramms.
+    # AUS, weil eine abweichende Kundennummer die Fotos in einen fremden Park
+    # schiebt - der Server leitet den Park aus genau dieser Nummer ab.
+    VIEWER_RECIPE_ENABLED         = "false"
+
+    # Neustart- und Testfoto-Knoepfe. Ohne hinterlegte Programme erscheint
+    # ohnehin nichts; der Schalter ist die zusaetzliche Bremse.
+    VIEWER_RESTART_ENABLED        = "false"
+    VIEWER_EXE                    = ""
+    CAMERA_EXE                    = ""
+    LIGHTBARRIER_EXE              = ""
+    TEST_PHOTO_EXE                = ""
+    VIEWER_SETTINGS_XML           = ""
+    VIEWER_NIGHT_START            = "23:30"
+    VIEWER_NIGHT_END              = "05:00"
+    RESTART_POLL_SECONDS          = "20"
+
+    # Direktmessungen am PC (Prozesse, Drucker, Uhrzeit). Harmlos und nur
+    # lesend, deshalb an.
+    PROBE_ENABLED                 = "true"
+    TERMINAL_HOST                 = ""
+    TERMINAL_PORT                 = "22000"
+    EXPECTED_COM_PORTS            = ""
+
+    # Bargeld und Karte. Ohne Pfade entfaellt die Auswertung vollstaendig.
+    COIN_STATS_FILE               = ""
+    COIN_LOG_GLOB                 = ""
+    CARD_LOG_GLOB                 = ""
+    COIN_LOW_COUNT                = "10"
+    PAYMENT_DAYS                  = "7"
   }
 
   if (-not (Test-Path $EnvPath)) {

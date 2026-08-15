@@ -13,8 +13,12 @@ class FakeAssetClient:
         self._assets = assets
         self.payload = payload
         self.downloads = 0
+        self.last_restart_ack: str | None = None
 
-    def assets(self) -> dict[str, object]:
+    def assets(self, restart_ack: str | None = None) -> dict[str, object]:
+        # Mirrors the real client, which now also carries the acknowledgement of
+        # a completed viewer restart back to the server.
+        self.last_restart_ack = restart_ack
         return {"assets": self._assets}
 
     def download_signed_url(self, signed_url: str) -> bytes:
@@ -141,3 +145,67 @@ def test_asset_sync_rejects_target_outside_allowed_roots(tmp_path: Path):
     assert result.failed == 1
     assert not outside.exists()
     assert store.asset_counts() == {"failed": 1}
+
+
+def _asset(target: Path, payload: bytes, kennung: str = "asset-1") -> dict[str, object]:
+    return {
+        "id": kennung,
+        "slot": "viewer_background",
+        "target_path": str(target),
+        "bucket": "liftpic-assets",
+        "storage_path": "parks/test/hintergrund.png",
+        "signed_url": "memory://asset",
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "updated_at": "2026-08-15T12:00:00Z",
+    }
+
+
+def test_gesperrtes_ziel_erzeugt_keine_sicherung(tmp_path: Path):
+    """Der Kreislauf aus F-027.
+
+    Das Verkaufsprogramm haelt `hintergrund.png` offen. Frueher lief die
+    Sicherung VOR dem Schreiben, das Schreiben scheiterte, der Zustand wurde nie
+    "aktuell" - und beim naechsten Abruf begann alles von vorn. Ergebnis am
+    14.08.2026: 121 Ordner mit 119 byte-gleichen Kopien derselben Datei.
+    """
+    viewer = tmp_path / "samuel_neu"
+    viewer.mkdir()
+    target = viewer / "hintergrund.png"
+    target.write_bytes(b"alt")
+    payload = b"neuer hintergrund"
+    settings = make_settings(tmp_path, viewer)
+    store = StateStore(settings.state_db)
+    worker = AssetSyncWorker(settings, store, FakeAssetClient([_asset(target, payload)], payload))
+
+    # Die Datei offen halten, wie es das Verkaufsprogramm tut.
+    with open(target, "rb") as offen:
+        offen.read()
+        # Windows: exklusiv geoeffnet. Unter anderen Systemen greift die
+        # Sperrpruefung nicht, deshalb wird sie hier direkt nachgestellt.
+        worker._ziel_ist_gesperrt = lambda _p: True
+        result = worker.sync_once()
+
+    assert result.applied == 0
+    assert result.restart_needed is True, "es muss als Wartezustand gemeldet werden"
+    assert target.read_bytes() == b"alt", "das Original bleibt unangetastet"
+    assert list((tmp_path / "backups").rglob("hintergrund.png")) == [], (
+        "ohne Schreibmoeglichkeit darf keine Sicherung entstehen"
+    )
+
+
+def test_gleiche_sicherung_entsteht_nicht_zweimal(tmp_path: Path):
+    """Zweimal derselbe alte Inhalt ergibt eine Sicherung, nicht zwei."""
+    viewer = tmp_path / "samuel_neu"
+    viewer.mkdir()
+    target = viewer / "hintergrund.png"
+    target.write_bytes(b"alt")
+    settings = make_settings(tmp_path, viewer)
+    store = StateStore(settings.state_db)
+
+    AssetSyncWorker(settings, store, FakeAssetClient([_asset(target, b"eins")], b"eins")).sync_once()
+    # Zuruecksetzen, damit derselbe alte Inhalt erneut gesichert wuerde.
+    target.write_bytes(b"alt")
+    AssetSyncWorker(settings, store, FakeAssetClient([_asset(target, b"zwei", "asset-2")], b"zwei")).sync_once()
+
+    sicherungen = list((tmp_path / "backups").rglob("hintergrund.png"))
+    assert len(sicherungen) == 1, f"erwartet 1, gefunden {len(sicherungen)}"

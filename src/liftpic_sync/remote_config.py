@@ -23,7 +23,7 @@ def config_to_env(config: dict[str, object], device_token: str) -> dict[str, str
     if mode == "count_only":
         shadow_mode = True
 
-    return {
+    werte = {
         "PARK_SLUG": str(config.get("park_slug") or "unknown-park"),
         "PARK_ID": str(config.get("park_id") or ""),
         "CUSTOMER_CODE": str(config.get("legacy_customer_code") or "0000"),
@@ -42,3 +42,62 @@ def config_to_env(config: dict[str, object], device_token: str) -> dict[str, str
         "PAPER_CAPACITY": str(int(config.get("paper_capacity") or 0)),
         "PAPER_WARN_REMAINING": str(int(config.get("paper_warn_remaining") or 20)),
     }
+    werte.update(_merkmale_aus_einstellungen(config))
+    return werte
+
+
+# Merkmale, die sich aus dem Dashboard schalten lassen sollen.
+#
+# Bis hierher konnte man einen Automaten nur an seiner `.env` umstellen - also
+# nur vor Ort. Fuer Imst hiesse das: nach dem Rollout noch einmal hinfahren,
+# um Neustart-Knoepfe, Testfoto oder die Muenzauswertung einzuschalten.
+#
+# Die Zuordnung steht bewusst getrennt von der Tabelle oben, weil hier eine
+# andere Regel gilt: fehlt ein Wert, wird der Schluessel NICHT geschrieben.
+# Oben gewinnt bei einem leeren Serverwert ein harter Vorgabewert - genau die
+# Falle, ueber die eine Anlage mit eigenen Pfaden auf die Standardpfade
+# zurueckgesetzt wuerde. Hier bleibt stattdessen stehen, was am Automaten steht.
+FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
+    ("viewer_restart_enabled", "VIEWER_RESTART_ENABLED"),
+    ("viewer_exe", "VIEWER_EXE"),
+    ("camera_exe", "CAMERA_EXE"),
+    ("lightbarrier_exe", "LIGHTBARRIER_EXE"),
+    ("test_photo_exe", "TEST_PHOTO_EXE"),
+    ("viewer_settings_xml", "VIEWER_SETTINGS_XML"),
+    ("coin_stats_file", "COIN_STATS_FILE"),
+    ("coin_log_glob", "COIN_LOG_GLOB"),
+    ("card_log_glob", "CARD_LOG_GLOB"),
+    ("operational_log_globs", "OPERATIONAL_LOG_GLOBS"),
+    ("asset_sync_enabled", "ASSET_SYNC_ENABLED"),
+    ("probe_enabled", "PROBE_ENABLED"),
+    ("terminal_host", "TERMINAL_HOST"),
+)
+
+# Welche davon Schalter sind und deshalb als true/false geschrieben werden.
+FERNSCHALTBAR_BOOLEAN = {
+    "viewer_restart_enabled", "asset_sync_enabled", "probe_enabled",
+}
+
+
+def _merkmale_aus_einstellungen(config: dict[str, object]) -> dict[str, str]:
+    """Die fernschaltbaren Merkmale aus dem `settings`-Feld der Maschine.
+
+    Nur was ausdruecklich dort steht, wird geschrieben. Ein fehlender Eintrag
+    laesst den Wert am Automaten unveraendert - er schaltet ihn nicht ab.
+    """
+    roh = config.get("settings")
+    if not isinstance(roh, dict):
+        return {}
+
+    ergebnis: dict[str, str] = {}
+    for schluessel, env_name in FERNSCHALTBAR:
+        if schluessel not in roh:
+            continue
+        wert = roh[schluessel]
+        if wert is None:
+            continue
+        if schluessel in FERNSCHALTBAR_BOOLEAN:
+            ergebnis[env_name] = _bool_env(wert)
+        else:
+            ergebnis[env_name] = str(wert)
+    return ergebnis

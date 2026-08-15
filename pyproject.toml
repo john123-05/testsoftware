@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "liftpic-sync"
-version = "0.1.0"
+# Muss mit src/liftpic_sync/__init__.py und dem Git-Tag uebereinstimmen.
+version = "0.2.0"
 description = "Robust Liftpictures photo ingestion, speed matching, and Supabase upload service."
 readme = "README.md"
 requires-python = ">=3.11"

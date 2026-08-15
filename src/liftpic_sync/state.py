@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -48,7 +49,12 @@ class StateStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.db_path))
+        # `timeout` ist die Wartezeit auf eine gesperrte Datenbank. Der
+        # Python-Vorgabewert von 5 Sekunden war zu knapp: bei zwei Schreibern
+        # endete jeder Konflikt in "database is locked", und run_forever
+        # verschluckte den ganzen Durchlauf mit "run_once failed" - was wie ein
+        # Plattenproblem aussieht und nicht wie ein zweiter Agent (F-025).
+        self.conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         self.conn.row_factory = sqlite3.Row
         self.migrate()
 
@@ -58,6 +64,9 @@ class StateStore:
     def migrate(self) -> None:
         cur = self.conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL")
+        # Dasselbe noch einmal auf Datenbankebene, damit es auch fuer
+        # Verbindungen gilt, die nicht ueber __init__ kommen.
+        cur.execute("PRAGMA busy_timeout=30000")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS schema_state (
@@ -100,6 +109,42 @@ class StateStore:
                 UPDATE photo_events
                 SET event_key = substr(captured_at, 1, 10) || '|unknown|' || capture_id
                 WHERE event_key IS NULL
+                """
+            )
+        # Welche Dashboard-Auftraege schon ausgefuehrt wurden (F-025). Der
+        # Primaerschluessel ist die Absicherung: ein zweites INSERT derselben
+        # Kennung scheitert, und genau daran erkennt der zweite Agent, dass er
+        # den Auftrag nicht noch einmal ausfuehren darf.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS handled_orders (
+                request_id TEXT PRIMARY KEY,
+                handled_at REAL NOT NULL
+            )
+            """
+        )
+        # Alte Eintraege verfallen. Ein Auftrag, der 30 Tage zurueckliegt, kann
+        # nicht mehr offen sein - und die Tabelle soll nicht ewig wachsen.
+        cur.execute(
+            "DELETE FROM handled_orders WHERE handled_at < ?",
+            (time.time() - 30 * 86400,),
+        )
+
+        # Wer eine Zeile gerade hochlaedt, und seit wann (F-025). Ohne diese
+        # beiden Spalten waehlten zwei Agenten dieselben Zeilen aus und luden
+        # jedes Foto zweimal hoch.
+        if "claimed_by" not in columns:
+            cur.execute("ALTER TABLE photo_events ADD COLUMN claimed_by TEXT")
+        if "claimed_at" not in columns:
+            cur.execute("ALTER TABLE photo_events ADD COLUMN claimed_at REAL")
+            # Eine Anlage, die beim Update mitten im Upload stand, haette sonst
+            # Zeilen auf 'uploading' ohne Zeitstempel - die waeren nie wieder
+            # faellig. Solche Zeilen werden einmalig freigegeben.
+            cur.execute(
+                """
+                UPDATE photo_events
+                SET upload_status='queued'
+                WHERE upload_status='uploading'
                 """
             )
         photo_columns = cur.execute("PRAGMA table_info(photo_events)").fetchall()
@@ -213,6 +258,30 @@ class StateStore:
             ON asset_deployments(status, applied_at)
             """
         )
+        # Health notes that must survive an outage. Without this, everything a
+        # PC noticed while the connection was down was lost: the heartbeat only
+        # wrote to the local log file and the server never learned that anything
+        # had happened, let alone why. Entries are buffered here and delivered
+        # with the first heartbeat that gets through.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS health_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                occurred_at TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                detail TEXT,
+                delivered INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE INDEX IF NOT EXISTS health_events_undelivered_idx
+            ON health_events(delivered, occurred_at)
+            """
+        )
         if cur.execute("SELECT COUNT(*) FROM schema_state").fetchone()[0] == 0:
             cur.execute("INSERT INTO schema_state(version) VALUES (?)", (SCHEMA_VERSION,))
         else:
@@ -311,18 +380,99 @@ class StateStore:
         self.conn.commit()
         return exists is None
 
+    # Wie lange ein beanspruchter Upload als "in Arbeit" gilt, bevor ihn ein
+    # anderer Durchlauf wieder aufgreifen darf. Grosszuegig genug fuer ein
+    # grosses Bild bei schlechter Leitung, kurz genug, dass ein Absturz die
+    # Zeile nicht fuer immer blockiert.
+    ANSPRUCH_GILT_SEKUNDEN = 600
+
     def due_uploads(self, limit: int = 20) -> Iterable[sqlite3.Row]:
+        """Die naechsten Uploads - und sie gehoeren danach uns allein.
+
+        Frueher war das ein reines SELECT (F-025). Zwei Agenten waehlten damit
+        garantiert dieselben Zeilen aus - gleiche Sortierung, gleiches Limit -
+        und luden **jedes Foto zweimal** hoch. Der Status wechselte erst nach
+        dem fertigen Upload, das Zeitfenster war also der ganze Upload.
+
+        Jetzt wird in einer Transaktion beansprucht: die Zeilen wechseln sofort
+        auf 'uploading' und tragen, wer sie hat. Ein zweiter Agent sieht sie
+        dadurch nicht mehr. Laeuft ein Anspruch ab (Absturz mitten im Upload),
+        wird die Zeile wieder frei - deshalb die Verfallszeit statt eines
+        Kennzeichens, das niemand mehr zuruecksetzt.
+        """
         now = time.time()
-        return self.conn.execute(
+        verfallen = now - self.ANSPRUCH_GILT_SEKUNDEN
+        anspruch = f"{os.getpid()}@{time.time():.0f}"
+        with self.conn:  # eine Transaktion: auswaehlen und beanspruchen
+            rows = self.conn.execute(
+                """
+                SELECT * FROM photo_events
+                WHERE (
+                        (upload_status IN ('queued', 'retry') AND retry_after <= ?)
+                     OR (upload_status = 'uploading' AND claimed_at <= ?)
+                      )
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (now, verfallen, limit),
+            ).fetchall()
+            if not rows:
+                return []
+            self.conn.executemany(
+                """
+                UPDATE photo_events
+                SET upload_status='uploading', claimed_by=?, claimed_at=?
+                WHERE event_key=?
+                """,
+                [(anspruch, now, row["event_key"]) for row in rows],
+            )
+        return rows
+
+    def auftrag_beanspruchen(self, request_id: str) -> bool:
+        """Diesen Auftrag genau einmal ausfuehren duerfen (F-025).
+
+        `True` heisst: wir haben ihn, und niemand sonst bekommt ihn. `False`
+        heisst: ein anderer Durchlauf oder ein anderer Agent hat ihn bereits
+        ausgefuehrt - wir quittieren nur noch.
+
+        Warum ueberhaupt: die Quittung lag bisher nur im Hauptspeicher
+        (`_pending_restart_ack`). Der Auftrag bleibt beim Server offen, bis die
+        Quittung im naechsten Abruf ankommt - mindestens 20 Sekunden. In diesem
+        Fenster holen ihn zwei Agenten ab und fuehren ihn **beide** aus. Beim
+        Verkaufsprogramm heisst das im schlimmsten Fall: der eine startet es,
+        der andere haelt genau dieses frisch gestartete Programm wieder an, und
+        der Automat steht - denn keines dieser Programme steht im Autostart.
+
+        Der Anspruch ueberlebt auch einen Neustart des Agenten, weil er in der
+        Datenbank steht und nicht im Speicher.
+        """
+        if not request_id:
+            return True  # ohne Kennung laesst sich nichts unterscheiden
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO handled_orders (request_id, handled_at) VALUES (?, ?)",
+                    (request_id, time.time()),
+                )
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def release_upload(self, event_key: str) -> None:
+        """Einen Anspruch zuruecknehmen, ohne ihn als erledigt zu buchen.
+
+        Gebraucht, wenn ein Durchlauf abbricht, bevor der Upload entschieden
+        ist - sonst wartet die Zeile bis zum Ablauf der Verfallszeit.
+        """
+        self.conn.execute(
             """
-            SELECT * FROM photo_events
-            WHERE upload_status IN ('queued', 'retry')
-              AND retry_after <= ?
-            ORDER BY created_at ASC
-            LIMIT ?
+            UPDATE photo_events
+            SET upload_status='queued', claimed_by=NULL, claimed_at=NULL
+            WHERE event_key=? AND upload_status='uploading'
             """,
-            (now, limit),
-        ).fetchall()
+            (event_key,),
+        )
+        self.conn.commit()
 
     def mark_uploaded(self, event_key: str, storage_path: str, raw_storage_path: str | None = None) -> None:
         self.conn.execute(
@@ -332,7 +482,9 @@ class StateStore:
                 storage_path=?,
                 raw_storage_path=?,
                 error=NULL,
-                updated_at=?
+                updated_at=?,
+                claimed_by=NULL,
+                claimed_at=NULL
             WHERE event_key=?
             """,
             (storage_path, raw_storage_path, time.time(), event_key),
@@ -346,7 +498,9 @@ class StateStore:
             SET upload_status='shadowed',
                 storage_path=?,
                 error=NULL,
-                updated_at=?
+                updated_at=?,
+                claimed_by=NULL,
+                claimed_at=NULL
             WHERE event_key=?
             """,
             (storage_path, time.time(), event_key),
@@ -381,7 +535,9 @@ class StateStore:
                 attempts=attempts + 1,
                 error=?,
                 retry_after=?,
-                updated_at=?
+                updated_at=?,
+                claimed_by=NULL,
+                claimed_at=NULL
             WHERE event_key=?
             """,
             (error[:2000], retry_after, time.time(), event_key),
@@ -610,6 +766,102 @@ class StateStore:
             ),
         )
         self.conn.commit()
+
+    def get_app_state(self, key: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT value FROM app_state WHERE key = ?", (key,)
+        ).fetchone()
+        return str(row[0]) if row else None
+
+    def set_app_state(self, key: str, value: str | None) -> None:
+        """Remember a small piece of state across restarts.
+
+        Used for facts that must outlive the process - an ongoing outage, for
+        instance: if the agent is restarted mid-outage (power cut, watchdog),
+        an in-memory marker would be gone and the reconnect could never report
+        how long the machine was cut off.
+        """
+        try:
+            if value is None:
+                self.conn.execute("DELETE FROM app_state WHERE key = ?", (key,))
+            else:
+                self.conn.execute(
+                    """
+                    INSERT INTO app_state(key, value, updated_at) VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value,
+                                                   updated_at = excluded.updated_at
+                    """,
+                    (key, value, time.time()),
+                )
+            self.conn.commit()
+        except sqlite3.Error:
+            pass
+
+    def record_health_event(
+        self,
+        kind: str,
+        severity: str,
+        summary: str,
+        detail: str | None = None,
+        occurred_at: str | None = None,
+    ) -> None:
+        """Note something worth telling the server, even if it is unreachable.
+
+        Deliberately fire-and-forget: a health note must never be able to break
+        the loop that produced it.
+        """
+        try:
+            self.conn.execute(
+                """
+                INSERT INTO health_events(occurred_at, kind, severity, summary, detail)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    occurred_at or datetime.now(timezone.utc).isoformat(),
+                    kind,
+                    severity,
+                    summary[:500],
+                    (detail or "")[:2000] or None,
+                ),
+            )
+            self.conn.commit()
+        except sqlite3.Error:
+            pass
+
+    def undelivered_health_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT id, occurred_at, kind, severity, summary, detail
+            FROM health_events
+            WHERE delivered = 0
+            ORDER BY occurred_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_health_events_delivered(self, ids: list[int]) -> None:
+        if not ids:
+            return
+        placeholders = ",".join("?" for _ in ids)
+        self.conn.execute(
+            f"UPDATE health_events SET delivered = 1 WHERE id IN ({placeholders})",
+            ids,
+        )
+        # Keep the buffer from growing without bound; delivered notes older than
+        # a week have served their purpose.
+        self.conn.execute(
+            "DELETE FROM health_events WHERE delivered = 1 AND occurred_at < ?",
+            ((datetime.now(timezone.utc) - timedelta(days=7)).isoformat(),),
+        )
+        self.conn.commit()
+
+    def pending_health_event_count(self) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM health_events WHERE delivered = 0"
+        ).fetchone()
+        return int(row[0]) if row else 0
 
     def asset_counts(self) -> dict[str, int]:
         rows = self.conn.execute(

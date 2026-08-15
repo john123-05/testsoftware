@@ -26,6 +26,7 @@ type ConfigRow = {
   paper_capacity: number;
   pairing_status: string;
   device_token: string;
+  settings?: Record<string, unknown> | null;
   parks?: { slug?: string; name?: string } | null;
 };
 
@@ -58,6 +59,13 @@ function publicConfig(row: ConfigRow) {
     print_count_file: row.print_count_file,
     paper_warn_remaining: row.paper_warn_remaining,
     paper_capacity: row.paper_capacity,
+    // Fernschaltbare Merkmale (Neustart-Knöpfe, Testfoto, Münzauswertung, ...).
+    //
+    // Bewusst als eigenes Feld und nicht als weitere Spalten: hier gilt eine
+    // andere Regel als oben. Fehlt ein Eintrag, bleibt der Wert am Automaten
+    // stehen, statt auf einen Vorgabewert zurückgesetzt zu werden - sonst
+    // würde eine Anlage mit eigenen Pfaden beim nächsten Abruf plattgemacht.
+    settings: row.settings ?? {},
   };
 }
 

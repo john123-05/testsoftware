@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -82,4 +83,13 @@ def write_env_values(path: str | Path, updates: dict[str, str]) -> None:
     for key in sorted(remaining):
         output.append(f"{key}={remaining[key]}")
 
-    env_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+    # Erst daneben schreiben, dann ersetzen (F-025).
+    #
+    # `write_text` kuerzt die Datei und fuellt sie neu. Bricht das dazwischen ab
+    # - zwei Schreiber, Stromausfall, volle Platte -, bleibt eine abgeschnittene
+    # `.env` liegen, und der Automat findet beim naechsten Start weder
+    # Geraetetoken noch Park. Der Uploader schreibt hier alle 120 Sekunden, und
+    # der Installer kann dieselbe Datei gleichzeitig anfassen.
+    temp = env_path.with_name(f"{env_path.name}.{os.getpid()}.tmp")
+    temp.write_text("\n".join(output) + "\n", encoding="utf-8")
+    os.replace(temp, env_path)
