@@ -79,17 +79,52 @@ def test_frisch_geaenderter_bestand_gilt_nicht_als_stillstand(tmp_path: Path):
     assert bestand.unveraendert_stunden == 0.0
 
 
-def test_muenzpruefer_meldet_fehler(tmp_path: Path):
-    """Wortgleich aus NRI.CoinCharger_082026.txt vom 15.08.2026."""
+def test_start_und_ruhezustand_sind_kein_defekt(tmp_path: Path):
+    """Die zwei "Error"-Zeilen, die voellig normal sind.
+
+    Wortgleich aus NRI.CoinCharger_082026.txt. "reset" meldet das Geraet beim
+    Hochfahren - es steht bei jedem Start und beweist eher, dass der Pruefer
+    antwortet. "Payment unit disabled" ist der Ruhezustand: der Automat gibt
+    den Pruefer nur waehrend eines Kaufs frei, am Geraet steht dann "gesperrt
+    durch Automaten".
+
+    Eine erste Fassung wertete beides als Defekt und haette an einem gesunden
+    Automaten "Pruefer arbeitet nicht" angezeigt.
+    """
     (tmp_path / "NRI.CoinCharger_082026.txt").write_text(
         "15.08.2026 12:14:52  openpaymentmanagerex(10000) => 0 (OK)\n"
         "15.08.2026 12:14:59  startpaymentmanager(xx,0,0,0) => 1 (Coin changer/validator)\n"
         "15.08.2026 12:14:59  ==> message: (4,1,1) - "
-        "(Coin changer/validator: Error - Coin changer/validator reset)\n",
+        "(Coin changer/validator: Error - Coin changer/validator reset)\n"
+        "15.08.2026 12:15:02  ==> message: (4,1,11) - "
+        "(Coin changer/validator: Error - Payment unit disabled)\n",
+        encoding="utf-8",
+    )
+
+    # Keine Aussage - aber ausdruecklich kein Defekt.
+    assert muenzpruefer_arbeitet(str(tmp_path / "NRI.CoinCharger_*.txt")) is not False
+
+
+def test_muenzstau_ist_ein_defekt(tmp_path: Path):
+    """Ein Muenzstau dagegen schon - da steckt etwas fest."""
+    (tmp_path / "NRI.CoinCharger_082026.txt").write_text(
+        "15.08.2026 17:03:43  ==> message: (3,1,0) - (Coin changer/validator: Escrow - 0)\n"
+        "15.08.2026 17:03:44  ==> message: (4,1,13) - (Coin changer/validator: Error - Coin jam)\n",
         encoding="utf-8",
     )
 
     assert muenzpruefer_arbeitet(str(tmp_path / "NRI.CoinCharger_*.txt")) is False
+
+
+def test_ready_nach_dem_stau_zaehlt_wieder(tmp_path: Path):
+    """Die juengste Aussage gewinnt - genau wie bei der Kamera."""
+    (tmp_path / "NRI.CoinCharger_082026.txt").write_text(
+        "15.08.2026 17:03:44  ==> message: (4,1,13) - (Coin changer/validator: Error - Coin jam)\n"
+        "15.08.2026 17:03:47  ==> message: (0,1,1) - (Coin changer/validator: Status - Ready)\n",
+        encoding="utf-8",
+    )
+
+    assert muenzpruefer_arbeitet(str(tmp_path / "NRI.CoinCharger_*.txt")) is True
 
 
 def test_angenommenes_geld_schlaegt_einen_alten_fehler(tmp_path: Path):

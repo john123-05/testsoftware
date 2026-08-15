@@ -275,16 +275,29 @@ def lies_muenzbestand(pfad: Path) -> Muenzbestand | None:
     )
 
 
-# Der Muenzpruefer meldet sich beim Start entweder betriebsbereit oder mit
-# einem Fehler. "Coin changer/validator reset" nach dem Start heisst: er ist
-# nicht ansprechbar. Am 15.08.2026 stand das bei jedem einzelnen Start.
+# Was am Muenzpruefer wirklich eine Stoerung ist - und was nur so aussieht.
+#
+# Nicht jede Zeile mit "Error" ist ein Defekt. Zwei Faelle sind voellig normal
+# und duerfen niemals Alarm ausloesen:
+#
+#   * "Coin changer/validator reset" - das meldet das Geraet beim Hochfahren.
+#     Es steht bei JEDEM Start des Verkaufsprogramms und beweist eher, dass der
+#     Pruefer da ist und antwortet.
+#   * "Payment unit disabled" - der Ruhezustand. Der Automat gibt den Pruefer
+#     nur waehrend eines Kaufs frei und sperrt ihn danach sofort wieder; am
+#     Geraet steht dann "gesperrt durch Automaten". So ist es gedacht.
+#
+# Eine erste Fassung stufte beides als Defekt ein und haette an einem voellig
+# gesunden Automaten "Pruefer arbeitet nicht" angezeigt.
 _MUENZ_FEHLER = re.compile(
-    r"(coin changer/validator:\s*error|coinchangererror|validator.*error)",
+    r"(coin jam|muenzstau|münzstau|sensor problem|"
+    r"not found \(while running\)|coinchangererror)",
     re.IGNORECASE,
 )
-# Ein angenommenes Geldstueck oder eine Auszahlung beweist das Gegenteil.
+# Umgekehrt: was beweist, dass er arbeitet. "Ready" nach dem Freigeben, ein
+# angenommenes Geldstueck, eine Auszahlung, oder eine Muenze in der Pruefung.
 _MUENZ_BETRIEB = re.compile(
-    r"(accepted\s*-\s*\d+|try payout:)",
+    r"(accepted\s*-\s*\d+|try payout:|status\s*-\s*ready|escrow\s*-)",
     re.IGNORECASE,
 )
 
