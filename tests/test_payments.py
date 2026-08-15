@@ -9,8 +9,8 @@ from pathlib import Path
 
 from liftpic_sync.payments import (
     Muenzereignis, Verkauf, fasse_zusammen, lies_kartenzahlungen,
-    lies_muenzbestand, lies_muenzereignisse, lies_verkaeufe, pruefe_alle,
-    pruefe_verkauf,
+    lies_muenzbestand, lies_muenzereignisse, lies_verkaeufe,
+    muenzpruefer_arbeitet, pruefe_alle, pruefe_verkauf,
 )
 
 
@@ -37,6 +37,77 @@ def test_muenzbestand_wird_gelesen(tmp_path: Path):
     assert bestand.summe_cent == 6035
     # Die Summe der Datei und die eigene Rechnung muessen uebereinstimmen.
     assert sum(c * a for c, a in bestand.sorten.items()) == bestand.summe_cent
+
+
+def test_stillstehender_bestand_wird_als_solcher_erkannt(tmp_path: Path):
+    """Ein frischer Zeitstempel heisst nicht, dass frisch gezaehlt wurde.
+
+    Das Verkaufsprogramm schreibt seine Buchfuehrung zweimal taeglich weg, auch
+    wenn sich nichts geruehrt hat. Am 15.08.2026 standen dieselben 60,65 € seit
+    dem 13.08. um 23:00 - der letzte Eintrag sah trotzdem taggenau aktuell aus,
+    waehrend im Geraet nachweislich keine Muenzen lagen.
+    """
+    datei = tmp_path / "CoinStats.txt"
+    datei.write_text(
+        "12.08.2026 23:00 1x0,05€+50x0,10€=5,05€\n"
+        "13.08.2026 23:00 1x0,05€+43x0,10€+64x0,20€+51x0,50€+18x1,00€+0x2,00€=60,65€\n"
+        "14.08.2026 12:00 1x0,05€+43x0,10€+64x0,20€+51x0,50€+18x1,00€+0x2,00€=60,65€\n"
+        "14.08.2026 23:00 1x0,05€+43x0,10€+64x0,20€+51x0,50€+18x1,00€+0x2,00€=60,65€\n"
+        "15.08.2026 12:00 1x0,05€+43x0,10€+64x0,20€+51x0,50€+18x1,00€+0x2,00€=60,65€\n",
+        encoding="utf-8",
+    )
+
+    bestand = lies_muenzbestand(datei)
+
+    assert bestand.gemessen_am == datetime(2026, 8, 15, 12, 0)
+    # Bis zur letzten Aenderung zurueck, nicht bis zum Dateianfang.
+    assert bestand.unveraendert_seit == datetime(2026, 8, 13, 23, 0)
+    assert bestand.unveraendert_stunden == 37.0
+
+
+def test_frisch_geaenderter_bestand_gilt_nicht_als_stillstand(tmp_path: Path):
+    datei = tmp_path / "CoinStats.txt"
+    datei.write_text(
+        "14.08.2026 23:00 1x0,05€+43x0,10€=4,35€\n"
+        "15.08.2026 12:00 1x0,05€+40x0,10€=4,05€\n",
+        encoding="utf-8",
+    )
+
+    bestand = lies_muenzbestand(datei)
+
+    assert bestand.unveraendert_seit == bestand.gemessen_am
+    assert bestand.unveraendert_stunden == 0.0
+
+
+def test_muenzpruefer_meldet_fehler(tmp_path: Path):
+    """Wortgleich aus NRI.CoinCharger_082026.txt vom 15.08.2026."""
+    (tmp_path / "NRI.CoinCharger_082026.txt").write_text(
+        "15.08.2026 12:14:52  openpaymentmanagerex(10000) => 0 (OK)\n"
+        "15.08.2026 12:14:59  startpaymentmanager(xx,0,0,0) => 1 (Coin changer/validator)\n"
+        "15.08.2026 12:14:59  ==> message: (4,1,1) - "
+        "(Coin changer/validator: Error - Coin changer/validator reset)\n",
+        encoding="utf-8",
+    )
+
+    assert muenzpruefer_arbeitet(str(tmp_path / "NRI.CoinCharger_*.txt")) is False
+
+
+def test_angenommenes_geld_schlaegt_einen_alten_fehler(tmp_path: Path):
+    """Die juengste Aussage gewinnt - sonst bliebe der Pruefer ewig defekt."""
+    (tmp_path / "NRI.CoinCharger_082026.txt").write_text(
+        "15.08.2026 09:00:00  ==> message: (4,1,1) - "
+        "(Coin changer/validator: Error - Coin changer/validator reset)\n"
+        "15.08.2026 10:00:00  ==> message: Accepted - 100\n",
+        encoding="utf-8",
+    )
+
+    assert muenzpruefer_arbeitet(str(tmp_path / "NRI.CoinCharger_*.txt")) is True
+
+
+def test_ohne_muenzprotokoll_wird_nichts_behauptet(tmp_path: Path):
+    """Kein Protokoll heisst "unbekannt", nicht "defekt"."""
+    assert muenzpruefer_arbeitet(str(tmp_path / "gibtesnicht_*.txt")) is None
+    assert muenzpruefer_arbeitet("") is None
 
 
 def test_muenzbestand_auch_in_alter_kodierung(tmp_path: Path):

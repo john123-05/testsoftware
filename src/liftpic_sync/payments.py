@@ -70,15 +70,35 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Muenzbestand:
-    """Was zum Zeitpunkt der Aufnahme an Wechselgeld im Geraet lag."""
+    """Was zum Zeitpunkt der Aufnahme an Wechselgeld im Geraet lag.
+
+    Wichtig: das ist **keine Messung an der Hardware**, sondern die Buchfuehrung
+    des Verkaufsprogramms, zweimal taeglich weggeschrieben. Steht der
+    Muenzpruefer still, schreibt es weiter denselben Wert - am 15.08.2026 seit
+    drei Tagen dieselben 60,65 €, waehrend im Geraet nachweislich nichts lag.
+    Deshalb wird mitgeliefert, seit wann sich nichts mehr geruehrt hat.
+    """
     gemessen_am: datetime | None
     # Sorte in Cent -> Anzahl, z. B. {10: 43, 20: 64}
     sorten: dict[int, int]
     summe_cent: int
+    # Seit wann exakt dieselbe Aufteilung geschrieben wird. Gleich
+    # `gemessen_am`, wenn sich der Wert zuletzt geaendert hat.
+    unveraendert_seit: datetime | None = None
+
+    @property
+    def unveraendert_stunden(self) -> float | None:
+        if self.gemessen_am is None or self.unveraendert_seit is None:
+            return None
+        return max(0.0, (self.gemessen_am - self.unveraendert_seit).total_seconds() / 3600.0)
 
     def as_dict(self) -> dict:
         return {
             "gemessen_am": self.gemessen_am.isoformat() if self.gemessen_am else None,
+            "unveraendert_seit": (
+                self.unveraendert_seit.isoformat() if self.unveraendert_seit else None
+            ),
+            "unveraendert_stunden": self.unveraendert_stunden,
             "sorten": [
                 {"cent": cent, "anzahl": anzahl, "wert_cent": cent * anzahl}
                 for cent, anzahl in sorted(self.sorten.items())
@@ -208,18 +228,31 @@ _BETRAG = re.compile(r"^\s*\d+[.,]\d{2}\s*(?:€|€)?\s*$")
 _SORTE = re.compile(r"(\d+)\s*x\s*(\d+[.,]\d{2})")
 
 
+def _sortenaufteilung(zeile: str) -> dict[int, int]:
+    """Welche Sorten in welcher Anzahl in dieser Zeile stehen."""
+    sorten: dict[int, int] = {}
+    for anzahl, wert in _SORTE.findall(zeile):
+        cent = _cent(wert)
+        if cent:
+            sorten[cent] = sorten.get(cent, 0) + int(anzahl)
+    return sorten
+
+
 def lies_muenzbestand(pfad: Path) -> Muenzbestand | None:
-    """Die letzte Momentaufnahme aus CoinStats.txt."""
+    """Die letzte Momentaufnahme aus CoinStats.txt - und wie alt sie wirklich ist.
+
+    Das Verkaufsprogramm schreibt die Aufteilung nach Plan weg, nicht weil sich
+    etwas geaendert haette. Ein stillstehender Muenzpruefer erzeugt deshalb
+    beliebig viele frische Zeitstempel mit immer demselben Inhalt. Wir laufen
+    ruekwaerts, solange die Aufteilung gleich bleibt, und melden den Zeitpunkt
+    der ersten dieser gleichen Zeilen mit.
+    """
     zeilen = [z for z in _lies(pfad) if z.strip()]
     if not zeilen:
         return None
 
     letzte = zeilen[-1]
-    sorten: dict[int, int] = {}
-    for anzahl, wert in _SORTE.findall(letzte):
-        cent = _cent(wert)
-        if cent:
-            sorten[cent] = sorten.get(cent, 0) + int(anzahl)
+    sorten = _sortenaufteilung(letzte)
 
     summe = None
     if "=" in letzte:
@@ -227,7 +260,60 @@ def lies_muenzbestand(pfad: Path) -> Muenzbestand | None:
     if summe is None:
         summe = sum(cent * anzahl for cent, anzahl in sorten.items())
 
-    return Muenzbestand(gemessen_am=_zeit(letzte), sorten=sorten, summe_cent=summe)
+    gemessen = _zeit(letzte)
+    unveraendert = gemessen
+    for vorherige in reversed(zeilen[:-1]):
+        if _sortenaufteilung(vorherige) != sorten:
+            break
+        zeitpunkt = _zeit(vorherige)
+        if zeitpunkt is not None:
+            unveraendert = zeitpunkt
+
+    return Muenzbestand(
+        gemessen_am=gemessen, sorten=sorten, summe_cent=summe,
+        unveraendert_seit=unveraendert,
+    )
+
+
+# Der Muenzpruefer meldet sich beim Start entweder betriebsbereit oder mit
+# einem Fehler. "Coin changer/validator reset" nach dem Start heisst: er ist
+# nicht ansprechbar. Am 15.08.2026 stand das bei jedem einzelnen Start.
+_MUENZ_FEHLER = re.compile(
+    r"(coin changer/validator:\s*error|coinchangererror|validator.*error)",
+    re.IGNORECASE,
+)
+# Ein angenommenes Geldstueck oder eine Auszahlung beweist das Gegenteil.
+_MUENZ_BETRIEB = re.compile(
+    r"(accepted\s*-\s*\d+|try payout:)",
+    re.IGNORECASE,
+)
+
+
+def muenzpruefer_arbeitet(muster: str) -> bool | None:
+    """Arbeitet der Muenzpruefer, laut seinem eigenen Protokoll?
+
+    `None` heisst "nicht feststellbar" - kein Protokoll, keine Aussage darin.
+    Das ist ausdruecklich nicht dasselbe wie "arbeitet nicht".
+
+    Gelesen wird von hinten: die juengste Aussage gewinnt. Ein Fehler von heute
+    frueh zaehlt nicht mehr, wenn danach wieder Geld angenommen wurde.
+    """
+    if not muster:
+        return None
+    dateien = sorted(
+        (p for p in map(Path, glob.glob(muster)) if p.is_file()),
+        key=lambda p: p.stat().st_mtime,
+    )
+    if not dateien:
+        return None
+
+    for pfad in reversed(dateien[-3:]):
+        for zeile in reversed(_lies(pfad)):
+            if _MUENZ_BETRIEB.search(zeile):
+                return True
+            if _MUENZ_FEHLER.search(zeile):
+                return False
+    return None
 
 
 _ANGENOMMEN = re.compile(r"Accepted\s*-\s*(\d+)", re.IGNORECASE)
@@ -617,7 +703,32 @@ def read_payments(settings) -> dict:
     if settings.coin_stats_file:
         bestand = lies_muenzbestand(settings.coin_stats_file)
         if bestand:
-            ergebnis["coin_inventory"] = bestand.as_dict()
+            eintrag = bestand.as_dict()
+
+            # Ob man dem Wert glauben darf. Das Verkaufsprogramm schreibt seine
+            # Buchfuehrung nach Plan weg, auch wenn der Muenzpruefer stillsteht -
+            # dann sieht ein toter Wert taggenau frisch aus. Am 15.08.2026 waren
+            # es 60,65 €, seit 37 Stunden unveraendert, bei einem Pruefer, der
+            # bei jedem Start einen Fehler meldete; im Geraet lag nichts.
+            arbeitet = muenzpruefer_arbeitet(settings.coin_log_glob)
+            eintrag["pruefer_arbeitet"] = arbeitet
+            grund = None
+            if arbeitet is False:
+                grund = (
+                    "Der Münzprüfer meldet einen Fehler und arbeitet nicht. "
+                    "Der Betrag stammt aus der Buchführung des Verkaufsprogramms, "
+                    "nicht aus dem Gerät - er kann längst überholt sein."
+                )
+            elif (bestand.unveraendert_stunden or 0) >= 24:
+                grund = (
+                    f"Seit {int(bestand.unveraendert_stunden or 0)} Stunden "
+                    "unverändert. Entweder wurde nichts eingeworfen, oder der "
+                    "Münzprüfer meldet nichts mehr."
+                )
+            eintrag["verlaesslich"] = grund is None
+            eintrag["hinweis"] = grund
+
+            ergebnis["coin_inventory"] = eintrag
             ergebnis["coin_warnings"] = bestandswarnungen(
                 bestand, settings.coin_low_count,
             )
