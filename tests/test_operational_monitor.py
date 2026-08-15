@@ -93,6 +93,55 @@ def test_running_process_does_not_soften_a_lost_camera():
     assert nach["Verkaufsprogramm"]["detail"].startswith("Programm laeuft")
 
 
+def test_camera_recovers_when_it_reconnects(tmp_path: Path):
+    """Nach "Device lost" muss die Kamera auch wieder gruen werden koennen.
+
+    Sonst bleibt sie fuer immer rot: seit "Device lost" als Stoerung gilt,
+    braucht es eine Gegenzeile. Am 15.08.2026 war die Kamera um 11:38:55 laengst
+    wieder verbunden, die Kachel stand aber weiter auf Rot mit dem Fund von
+    10:11 - es gab schlicht keine Zeile, die als Entwarnung zaehlte.
+    """
+    log_dir = tmp_path / "3GerTis"
+    log_dir.mkdir()
+    (log_dir / "3gerlog.txt").write_text(
+        "15.08.2026 10:11:42\tDevice lost\n"
+        "15.08.2026 11:32:27\t Log Trace 15.08.2026 11:32:27\n"
+        # Nur aus der eigenen ini gelesen - das beweist nichts.
+        "15.08.2026 11:38:55\tGain (from ini) min=0, Gain max=4000000\n"
+        # Aus der Kamera gelesen - sie ist also erreichbar.
+        "15.08.2026 11:38:55\tGain (from cam) min=0, Gain max=480\n",
+        encoding="utf-8",
+    )
+
+    status = read_operational_status(
+        make_settings(tmp_path, (str(log_dir / "*.txt"),))
+    )
+    kamera = [d for d in status.devices if "from cam" in (d.detail or "")]
+
+    assert kamera, "die Verbindungszeile muss als Signal zaehlen"
+    assert kamera[0].status == "operational"
+    assert kamera[0].severity == "info"
+
+
+def test_camera_stays_red_on_ini_values_alone(tmp_path: Path):
+    """"(from ini)" allein ist keine Entwarnung - das steht auch ohne Kamera da."""
+    log_dir = tmp_path / "3GerTis"
+    log_dir.mkdir()
+    (log_dir / "3gerlog.txt").write_text(
+        "15.08.2026 10:11:42\tDevice lost\n"
+        "15.08.2026 11:38:55\tGain (from ini) min=0, Gain max=4000000\n",
+        encoding="utf-8",
+    )
+
+    status = read_operational_status(
+        make_settings(tmp_path, (str(log_dir / "*.txt"),))
+    )
+    kamera = [d for d in status.devices if "Device lost" in (d.detail or "")]
+
+    assert kamera, "der Geraeteverlust muss stehen bleiben"
+    assert kamera[0].status == "down"
+
+
 def test_device_lost_turns_the_camera_red(tmp_path: Path):
     """Die Kamera darf nach "Device lost" nicht gruen bleiben.
 

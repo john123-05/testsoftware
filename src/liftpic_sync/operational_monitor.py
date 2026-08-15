@@ -102,6 +102,16 @@ WARNING_RE = re.compile(
 OK_RE = re.compile(
     r"(ready|bereit|ok\b|connected|enabled|success|successful|image triggered|"
     r"state:\s*(wait|blocking)|terminal bereit|status - ready|hochgeladen|"
+    # Die Entwarnung der Kamera. 3GerTis liest beim Verbinden die Grenzwerte
+    # AUS DER KAMERA und schreibt sie mit "(from cam)"; "(from ini)" stammt aus
+    # der eigenen Konfigurationsdatei und erscheint auch ohne Kamera - deshalb
+    # steht hier ausdruecklich nur "cam". Dazu die gespeicherte Bilddatei, die
+    # ebenso beweist, dass die Kamera arbeitet.
+    #
+    # Ohne diese Marker gab es fuer die Kamera ueberhaupt keine Entwarnung: seit
+    # "Device lost" als Stoerung gilt, blieb sie am 15.08.2026 auch dann rot,
+    # als sie um 11:38:55 laengst wieder verbunden war.
+    r"\(from cam\)|image has been saved|"
     r"start application|programmstart)",
     re.IGNORECASE,
 )
