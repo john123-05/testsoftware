@@ -28,6 +28,61 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-032 — Zeitstempel im Verlauf sind um zwei Stunden verschoben
+Status:     offen
+Gesehen:    15.08.2026, mehrfach — zuletzt beim Nachprüfen der Szenarien
+Beleg:      Ein Ereignis mit `occurred_at` = 16.08. 01:32:46 trägt im Text
+            `2026-08-15 23:32:46`. Die Protokollzeile nennt Ortszeit, abgelegt
+            wird sie als UTC.
+Ursache:    Beim Ableiten eines Ereignisses aus einer Protokollzeile wird deren
+            Ortszeit ohne Umrechnung als UTC gespeichert. Ereignisse, die der
+            Agent selbst erzeugt (Testfoto, Neustart), sind korrekt.
+Folge:      Harmlos für den Betrieb, aber jede Nachforschung im Verlauf wird
+            unzuverlässig. Eine Abfrage „letzte 25 Minuten" lieferte mir 68
+            angebliche frische Fehler, die in Wahrheit zwei Stunden alt waren —
+            beinahe hätte ich daraus geschlossen, die Behebung von F-031 habe
+            nicht gewirkt.
+Behebung:   offen. **Vor dem Imst-Rollout beheben** — dort ist der Verlauf das
+            einzige Fenster, das wir auf die Anlage haben.
+Wiederkehr: —
+
+## F-033 — Ein erhöht laufender Agent ist für eine normale Sitzung unsichtbar
+Status:     offen (Einschränkung, kein Defekt)
+Gesehen:    15.08.2026 nach `ap7_pruefung.ps1`
+Beleg:      Vier `python.exe` liefen; von zweien war die Befehlszeile lesbar,
+            von den beiden erhöht gestarteten **nicht**. Die übliche Abfrage
+            `Where-Object { $_.CommandLine -like "*liftpic_sync*" }` lieferte
+            deshalb **null Treffer**, obwohl der Agent lief und im Sekundentakt
+            protokollierte. Ich hielt ihn kurzzeitig für abgestürzt.
+Ursache:    `Win32_Process.CommandLine` bleibt leer, wenn der fragende Prozess
+            nicht mindestens dieselben Rechte hat wie der befragte.
+Folge:      Alle Skripte, die Agenten über die Befehlszeile suchen
+            (`install_windows_service.ps1`, `restart_service.ps1`,
+            `update_liftpic.ps1`, `ap7_pruefung.ps1`), **müssen erhöht laufen** —
+            sie tun es, alle vier verlangen Administratorrechte. Für Imst
+            wichtig: dort läuft der Agent als SYSTEM, eine nicht erhöhte
+            Prüfung würde ihn übersehen und „kein Agent" melden.
+Behebung:   Als Einschränkung dokumentiert. Zusätzlich sollte eine Prüfung auf
+            `Get-Process -Name python` zurückfallen, wenn die Befehlszeile
+            nicht lesbar ist.
+Wiederkehr: —
+
+## F-034 — Ungeklärt: zweiter Aufgaben-Treffer bei Szenario 3
+Status:     offen, aktuell ohne Auswirkung
+Gesehen:    15.08.2026, `ap7_pruefung.ps1`
+Beleg:      `[bestanden] 3 - fremd benannte Aufgabe wird gefunden
+            (2 Treffer insgesamt)` — erwartet war **ein** Treffer, die Attrappe.
+Nachprüfung: Unmittelbar danach: **null** Aufgaben, die den Agenten starten,
+            und kein Dienst. Das Aufgabenplaner-Protokoll ist nicht aktiviert,
+            also gibt es keinen Nachweis, was der zweite Treffer war.
+Deutung:    Entweder wurde die Attrappe während der Registrierung doppelt
+            aufgezählt, oder es gab eine Alt-Aufgabe, die seither verschwunden
+            ist. **Nicht belegbar, deshalb nicht als geklärt abgehakt.**
+Folge:      Zurzeit keine — es existiert nachweislich kein zweiter Startweg.
+            Vor dem Imst-Rollout dort dasselbe prüfen: es darf genau eine
+            Startart geben.
+Wiederkehr: —
+
 ## F-031 — Ein Deploy sperrte alle Automaten aus `liftpic-config` aus
 Status:     offen — **braucht einen Handgriff im Supabase-Dashboard**
 Gesehen:    15.08.2026 abends, unmittelbar nach dem Ausrollen von AP-5

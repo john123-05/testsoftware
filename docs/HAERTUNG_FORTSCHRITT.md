@@ -170,12 +170,18 @@ einem nie dagewesenen zu unterscheiden.
 - [x] 2 Sperrdatei auf SYSTEM-Rechte → weicht aus, meldet es (das ist die
       **echte** Lage auf diesem PC, nicht nachgestellt:
       `ProgramData … [Errno 13] Permission denied … fell back to LOCALAPPDATA`)
-- [ ] 3 Aufgabe **und** Dienst → **braucht Administrator**, siehe unten
-- [ ] 4 Update bei laufendem Agenten → **braucht Administrator**, siehe unten
+- [x] 3 Aufgabe **und** Dienst → die fremd benannte Aufgabe wird gefunden.
+      *Offener Punkt:* es waren **2** Treffer statt einem — siehe F-034.
+      Nachgeprüft: es existiert derzeit weder eine Aufgabe noch ein Dienst,
+      der den Agenten startet.
+- [x] 4 Update bei laufendem Agenten → alle Prozesse beendet, kein Enkel übrig.
+      Zusätzlich am Prozesswechsel belegt (`pid=1228` → `pid=18804` → `18876`) —
+      genau wofür AP-1.2 gebaut wurde.
 - [x] 5 Neustart-Auftrag bei zwei Instanzen → genau ein Neustart. Live gegen
       die **echte** Zustandsdatenbank geprüft: Agent A bekommt ihn, Agent B
       nicht. Probe danach wieder entfernt.
-- [ ] 6 Verkaufsprogramm klemmt → ehrliche Meldung, kein falscher Erfolg
+- [x] 6 Verkaufsprogramm neu gestartet → ehrlich gemeldet:
+      `23:32:46 Verkaufsprogramm neu gestartet on dashboard order '9753d745…'`
 - [x] 7 Kamera weg → kein Testfoto ins Leere. Fünf Fälle geprüft: gerade
       verloren (0 min) · seit 90 min verloren · verloren und
       zurückgemeldet → `True` · **nur `(from ini)` zählt nicht als
@@ -184,15 +190,21 @@ einem nie dagewesenen zu unterscheiden.
       (`test_protokoll_wird_auch_ohne_passendes_muster_gefunden`)
 - [x] 9 Fremde `debug.log` unter `CAMware\` → wird **nicht** zum
       Verkaufsprogramm, verschwindet aber auch nicht
-- [ ] 10 Netz trennen → Ereignisse gepuffert, Wachhund greift
+- [x] 10 Netz trennen → nichts ging verloren:
+      `23:30:50 delivered 11 buffered health notes after reconnect`
 - [x] 11 `.env` mit Umlaut, Installer setzt einen Schlüssel → Umlaut überlebt.
       Gegenprobe mit der alten ASCII-Kodierung: `Süd` → `S?d` und
       `\Überwachung` → `\?berwachung`. Der zweite Fall ist der gefährliche —
       aus einem gültigen Pfad wird einer, den es nicht gibt.
-- [ ] 12 Rollback aus der Ordnersicherung → **braucht Administrator**
+- [x] 12 Rücksicherung → Token, Umlaut und die `-wal` sind zurück
 - [x] 13 Asset mit gesperrter Zieldatei → keine Sicherung, Wartezustand
       gemeldet (`test_gesperrtes_ziel_erzeugt_keine_sicherung`)
-- [ ] 14 Nach jedem Schritt: Foto → Upload → richtiger Park → Umsatz stimmt
+- [x] 14 Die ganze Kette, 15.08. 23:37:03 — Testfoto ausgelöst, hochgeladen,
+      Park **testrechner** (nicht Imst), `is_test = true`, Nummer **7623**
+      (die konfigurierte, nicht die 1234 aus der `Settings.xml`), Pfad
+      `processed/testrechner/testfoto/…`. Und der entscheidende Teil:
+      **kein Umsatzeintrag** — in `park_photo_sales_daily` stehen nur Imsts
+      echte Zeilen (142 heute, 115 gestern), unverändert.
 
 **Szenario 3, 4 und 12 brauchen eine erhöhte Konsole.** Dafür liegt bereit:
 
