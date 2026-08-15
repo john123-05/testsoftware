@@ -88,7 +88,10 @@ nicht eine Empfehlung.
       gehören
 - [x] 2.4 Unbekanntes, fehlerfreies Protokoll erscheint als eigene Quelle
       unter „system", statt verworfen zu werden
-- [ ] 2.5 `merge_key` ans Dashboard durchreichen
+- [x] 2.5 `merge_key` wird im Dashboard als Schlüssel benutzt, wenn der Automat
+      einen mitschickt (ältere Stände: weiter über den Klarnamen). Dazu ein
+      zweiter Index über den Klarnamen, weil die Neustart-Ziele nur ihren Namen
+      mitschicken und ihren Eintrag sonst nicht mehr fänden.
 
 **Beobachtung dabei (gehört zu AP-3):** die Lichtschranke ist aus der Anzeige
 verschwunden, weil ihre Protokolldatei 54 h alt ist und die Grenze bei 48 h
@@ -97,8 +100,16 @@ einem nie dagewesenen zu unterscheiden.
 
 ## AP-3 — Keine erfundenen Zahlen
 
-- [ ] `photos_sold_today ?? 0`, `monitored_sources ?? 0`,
-      `restart_poll_seconds ?? 20`, `bar_anteil/karte_anteil ?? 0`
+- [x] `photos_sold_today ?? 0` → Angabe entfällt, wenn nicht gemeldet
+- [x] `monitored_sources ?? 0` → „Anzahl überwachter Quellen unbekannt"
+- [x] `restart_poll_seconds ?? 20` → Satz entfällt („beim nächsten Abruf").
+      Die 20 waren doppelt falsch: bei abgeschalteten Neustarts sind es 300.
+- [x] `bar_anteil/karte_anteil ?? 0` → ohne Anteile kein Balken. Vorher zeigte
+      er 0 % bar und 100 % Karte, obwohl der Automat bewusst `null` liefert.
+- [ ] Offen: ein Gerät, das aus dem Herzschlag verschwindet, verschwindet
+      spurlos aus der Seite — nicht unterscheidbar von „gab es nie". Aufgefallen
+      an der Lichtschranke (Protokoll 54 h alt, Grenze 48 h). Eigener Punkt,
+      blockiert den Rollout nicht.
 
 ## AP-4 — Asset-Sicherungs-Kreislauf
 
