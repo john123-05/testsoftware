@@ -210,8 +210,17 @@ Vor und nach jedem Schritt vergleichen — muss identisch bleiben:
 
 ## Freigabe
 
-- [ ] Tag `v0.1.0-imst-stand` auf `d833ec0` (**vor** dem Merge!)
-- [ ] Härtung nach `main` mergen
+- [x] Tag `v0.1.0-imst-stand` auf `d833ec0` gesetzt und gepusht — **der
+      Rückweg existiert.** Nachgeprüft, nicht nur gesetzt: das Archiv lädt
+      (105 KB, 92 Einträge), enthält `cli.py`, `service.py` und den Installer,
+      und **keine** der Härtungsdateien (`preflight.py`, `update_liftpic.ps1`,
+      `FEHLERJOURNAL.md`, `rollback_lokal.ps1`). Es zeigt also wirklich auf den
+      Stand, der heute in Imst läuft.
+
+      Zurück damit: `.\scripts\update_liftpic.ps1 -Tag v0.1.0-imst-stand`
+      Weil der Installer nur darüberkopiert und nichts löscht, überlebt
+      `update_liftpic.ps1` die Rücksicherung — man kommt auch wieder vorwärts.
+- [ ] Härtung nach `main` mergen — **erst wenn Szenario 3, 4 und 12 durch sind**
 - [ ] Tag `v0.2.0-haertung` auf den neuen `main`
 
 ## AP-8 — Imst (nach Betriebsschluss)
