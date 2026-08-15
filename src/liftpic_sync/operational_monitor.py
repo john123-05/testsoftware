@@ -82,6 +82,13 @@ class OperationalStatus:
 
 PROBLEM_RE = re.compile(
     r"(critical|fatal|panic|error|fehler|failed|failure|offline|disabled|"
+    # "Device lost" ist die Zeile, mit der sich die GigE-Kamera verabschiedet.
+    # Sie traegt keinen Protokoll-Rang und enthaelt keines der ueblichen
+    # Reizwoerter, wurde deshalb als harmlos eingestuft - die Kachel blieb gruen,
+    # waehrend die Kamera tot war. Genau dieser Ausfall blieb einmal vier Tage
+    # unbemerkt. 3GerTis laeuft mit restart_if_lost=0 und verbindet sich nicht
+    # von allein neu, es braucht also immer einen Eingriff.
+    r"device lost|geraet verloren|gerät verloren|"
     r"communication lost|can't connect|cannot connect|not connected|no response|"
     r"timeout|paper empty|printer offline|coinchangererror|validator.*error|"
     r"exception|abgebrochen|verweigert|nicht gefunden|konnte nicht)",

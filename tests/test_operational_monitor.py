@@ -46,6 +46,37 @@ def make_settings(tmp_path: Path, globs: tuple[str, ...]) -> Settings:
     )
 
 
+def test_device_lost_turns_the_camera_red(tmp_path: Path):
+    """Die Kamera darf nach "Device lost" nicht gruen bleiben.
+
+    Am 15.08.2026 verabschiedete sich die Kamera um 10:11 mit genau dieser
+    Zeile. Die Kachel blieb "operational", obwohl der Klartext darunter
+    "Kamera nicht mehr erreichbar" sagte - und ein Testfoto 40 Minuten spaeter
+    ins Leere lief. Die Zeile traegt keinen Protokoll-Rang und keines der
+    ueblichen Reizwoerter, wurde also als harmlos eingestuft.
+    """
+    log_dir = tmp_path / "3GerTis"
+    log_dir.mkdir()
+    # Wortgleich aus C:\liftpic\3GerTis\3gerlog.txt, samt Tabulatoren.
+    (log_dir / "3gerlog.txt").write_text(
+        "15.08.2026 08:10:35\tGrab Image\n"
+        "15.08.2026 08:10:36\tImage has been saved-c:\\liftpic\\fotos\\00004.jpg\n"
+        "15.08.2026 10:11:42\tDevice lost\n",
+        encoding="utf-8",
+    )
+
+    status = read_operational_status(
+        make_settings(tmp_path, (str(log_dir / "*.txt"),))
+    )
+
+    kamera = [d for d in status.devices if "Device lost" in (d.detail or "")]
+    assert kamera, "die Zeile muss ueberhaupt als Signal erkannt werden"
+    assert kamera[0].status == "down"
+    assert kamera[0].severity == "error"
+    # Der Klartext erklaert, warum niemand auf eine Selbstheilung warten muss.
+    assert "nicht mehr erreichbar" in kamera[0].plain
+
+
 def test_coin_error_is_reported_as_down(tmp_path: Path):
     log_dir = tmp_path / "imageloader"
     log_dir.mkdir()
