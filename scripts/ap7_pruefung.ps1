@@ -118,7 +118,7 @@ try {
 
   # Ausgangslage: eine .env mit Token und Umlaut, dazu eine Zustandsdatenbank
   Set-Content (Join-Path $sicherung ".env") -Encoding UTF8 -Value @(
-    "DEVICE_TOKEN=altes-token", "MACHINE_LABEL=Bergstation Süd", "PARK_SLUG=imst"
+    "DEVICE_TOKEN=altes-token", "MACHINE_LABEL=Bergstation Sued", "PARK_SLUG=imst"
   )
   New-Item -ItemType Directory -Force -Path (Join-Path $sicherung "state") | Out-Null
   Set-Content (Join-Path $sicherung "state\liftpic-sync.db")     -Value "DB"  -Encoding UTF8
@@ -132,7 +132,7 @@ try {
   Copy-Item (Join-Path $sicherung "state") (Join-Path $ziel "state") -Recurse -Force
 
   $inhalt = Get-Content (Join-Path $ziel ".env") -Encoding UTF8 -Raw
-  $ok = ($inhalt -match "altes-token") -and ($inhalt -match "Süd") -and
+  $ok = ($inhalt -match "altes-token") -and ($inhalt -match "Sued") -and
         (Test-Path (Join-Path $ziel "state\liftpic-sync.db-wal"))
   Ergebnis "12" $ok "Token, Umlaut und die -wal sind zurueck"
 } finally {

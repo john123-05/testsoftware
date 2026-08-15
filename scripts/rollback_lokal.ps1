@@ -12,7 +12,7 @@
   die exportierte Aufgabe.
 
   Die Kopplung bleibt dabei erhalten: sie haengt am Datensatz auf dem Server
-  und am Gerätetoken in der .env, nicht am Programmstand.
+  und am Geraetetoken in der .env, nicht am Programmstand.
 
 .EXAMPLE
   .\rollback_lokal.ps1 -Sicherung C:\liftpic\sicherung-liftpic-sync-20260815-213000

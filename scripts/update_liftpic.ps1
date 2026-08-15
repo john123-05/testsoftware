@@ -143,10 +143,10 @@ $token = ($envText | Where-Object { $_ -match "^\s*DEVICE_TOKEN\s*=\s*(.+)$" } |
           ForEach-Object { $Matches[1].Trim() } | Select-Object -First 1)
 
 if ($token) {
-  Write-Host "  Gerätetoken vorhanden - es wird NICHT neu gekoppelt."
+  Write-Host "  Geraetetoken vorhanden - es wird NICHT neu gekoppelt."
   Write-Host "  (Das Koppeln wuerde 16 Schluessel mit Serverwerten ueberschreiben.)"
 } else {
-  Write-Warning "  Kein Gerätetoken in der .env. Dieser Automat muss gekoppelt werden:"
+  Write-Warning "  Kein Geraetetoken in der .env. Dieser Automat muss gekoppelt werden:"
   Write-Warning "  $VenvPy -m liftpic_sync.cli pair --code <CODE> --env $EnvPath"
 }
 
