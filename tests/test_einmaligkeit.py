@@ -210,6 +210,103 @@ def test_fehlversuch_gibt_den_anspruch_zurueck(tmp_path: Path):
         store.close()
 
 
+# ------------------------------------------------- Anspruch auf Auftraege
+
+def test_auftrag_wird_nur_einmal_ausgefuehrt(tmp_path: Path):
+    """Der gefaehrlichste Fall aus F-025.
+
+    Der Auftrag bleibt beim Server offen, bis die Quittung im naechsten Abruf
+    ankommt - mindestens 20 Sekunden. In diesem Fenster holen ihn zwei Agenten
+    ab. Beim Verkaufsprogramm hiesse das im schlimmsten Fall: der eine startet
+    es, der andere haelt genau dieses frisch gestartete Programm wieder an -
+    und der Automat steht, weil keines dieser Programme im Autostart steht.
+    """
+    from liftpic_sync.state import StateStore
+
+    db = tmp_path / "state.db"
+    a = StateStore(db)
+    b = StateStore(db)
+    try:
+        assert a.auftrag_beanspruchen("auftrag-1") is True
+        assert b.auftrag_beanspruchen("auftrag-1") is False
+        # Ein anderer Auftrag ist davon unberuehrt.
+        assert b.auftrag_beanspruchen("auftrag-2") is True
+    finally:
+        a.close()
+        b.close()
+
+
+def test_anspruch_ueberlebt_den_neustart_des_agenten(tmp_path: Path):
+    """Deshalb steht er in der Datenbank und nicht im Hauptspeicher."""
+    from liftpic_sync.state import StateStore
+
+    db = tmp_path / "state.db"
+    erster = StateStore(db)
+    assert erster.auftrag_beanspruchen("auftrag-1") is True
+    erster.close()
+
+    nach_neustart = StateStore(db)
+    try:
+        assert nach_neustart.auftrag_beanspruchen("auftrag-1") is False
+    finally:
+        nach_neustart.close()
+
+
+def test_auftrag_ohne_kennung_wird_durchgelassen(tmp_path: Path):
+    """Ohne Kennung laesst sich nichts unterscheiden - dann lieber ausfuehren
+    als einen echten Auftrag zu verschlucken."""
+    from liftpic_sync.state import StateStore
+
+    store = StateStore(tmp_path / "state.db")
+    try:
+        assert store.auftrag_beanspruchen("") is True
+        assert store.auftrag_beanspruchen("") is True
+    finally:
+        store.close()
+
+
+def test_env_wird_nicht_halb_geschrieben(tmp_path: Path, monkeypatch):
+    """Eine abgeschnittene .env kostet Geraetetoken und Parkzuordnung.
+
+    `write_text` kuerzt die Datei und fuellt sie neu. Bricht das dazwischen ab,
+    findet der Automat beim naechsten Start nichts mehr. Deshalb erst daneben
+    schreiben, dann ersetzen - die alte Datei bleibt bis zur letzten Sekunde
+    vollstaendig.
+    """
+    from liftpic_sync.envfile import write_env_values
+
+    ziel = tmp_path / ".env"
+    ziel.write_text("DEVICE_TOKEN=geheim\nPARK_SLUG=imst\n", encoding="utf-8")
+
+    echt = Path.write_text
+
+    def bricht_ab(self, *args, **kwargs):
+        if self.name.endswith(".tmp"):
+            echt(self, *args, **kwargs)
+            raise OSError("Platte voll")
+        return echt(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", bricht_ab)
+    with pytest.raises(OSError):
+        write_env_values(ziel, {"PARK_SLUG": "neu"})
+
+    # Die alte Datei ist unversehrt - genau darum geht es.
+    assert "DEVICE_TOKEN=geheim" in ziel.read_text(encoding="utf-8")
+    assert "PARK_SLUG=imst" in ziel.read_text(encoding="utf-8")
+
+
+def test_asset_zwischendatei_traegt_die_prozessnummer():
+    """Zwei Agenten duerfen nicht in dieselbe Zwischendatei schreiben."""
+    import inspect
+
+    from liftpic_sync.asset_sync import AssetSyncWorker
+
+    quelle = inspect.getsource(AssetSyncWorker._atomic_write)
+
+    assert "os.getpid()" in quelle
+    assert 'f"{target.name}.liftpic-sync.tmp"' not in quelle
+
+
 def test_protokoll_nennt_die_prozessnummer(tmp_path: Path):
     """Ohne Prozessnummer ist Doppelbetrieb nicht nachweisbar (F-026).
 

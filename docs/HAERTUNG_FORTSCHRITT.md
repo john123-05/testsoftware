@@ -45,12 +45,20 @@ nicht eine Empfehlung.
       Verfallszeit von 600 s, damit ein Absturz nichts dauerhaft blockiert.
       Migration ergänzt die zwei Spalten und gibt hängende `uploading`-Zeilen
       einmalig frei. Auf der echten Datenbank (18 Zeilen) durchgelaufen.
-- [ ] 1.4 Neustart-/Testfoto-Auftrag genau einmal (`service.py:161,736-744`)
+- [x] 1.4 Neustart-/Testfoto-Auftrag genau einmal — neue Tabelle
+      `handled_orders`, der Primärschlüssel ist die Absicherung. Der Anspruch
+      steht unmittelbar **vor** der Ausführung, nicht beim Sehen des Auftrags:
+      ein `tonight`-Auftrag durchläuft die Prüfungen stundenlang, würde er dabei
+      beansprucht, ginge er nachts nie los. Einträge verfallen nach 30 Tagen.
 - [x] 1.5 SQLite `busy_timeout` 30 s (Verbindung **und** PRAGMA) — vorher
       endete jeder Schreibkonflikt nach 5 s in „database is locked" und wurde
       von `run_forever` als „run_once failed" verschluckt
-- [ ] 1.6 Asset-Temp-Datei eindeutig (`asset_sync.py:226`)
-- [ ] 1.7 `.env` atomar schreiben (`envfile.py:85`) + UTF-8 im Installer
+- [x] 1.6 Asset-Zwischendatei trägt die Prozessnummer; eine Leiche wird nach
+      einem gescheiterten Ersetzen aufgeräumt
+- [x] 1.7 `.env` wird daneben geschrieben und dann ersetzt — die alte Datei
+      bleibt bis zur letzten Sekunde vollständig. Im Installer zusätzlich
+      `ASCII` → `UTF8` beim Lesen **und** Schreiben: das Setzen eines einzigen
+      Schlüssels machte vorher aus jedem Umlaut in *jeder* Zeile ein `?`.
 - [ ] 1.8 Startwege entwirren (`install_windows_service.ps1:14-33`,
       `restart_service.ps1:8-9`) — Stop, warten, prüfen, Start
 - [ ] 1.9 Token-Selbstheilung drosseln und sichtbar machen (`service.py:246-258`)

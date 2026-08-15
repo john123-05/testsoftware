@@ -65,8 +65,14 @@ function Set-EnvValue {
     [string]$Value
   )
 
+  # UTF-8 lesen und schreiben, nicht ASCII.
+  #
+  # Frueher stand hier -Encoding ASCII beim Schreiben: das Setzen EINES
+  # Schluessels schrieb die ganze Datei neu und machte dabei aus jedem
+  # Nicht-ASCII-Zeichen in JEDER Zeile ein Fragezeichen. Ein Pfad mit Umlaut
+  # oder eine Bezeichnung mit "ss" ueberlebte keine Neuinstallation.
   $existing = @()
-  if (Test-Path $EnvPath) { $existing = @(Get-Content -Path $EnvPath) }
+  if (Test-Path $EnvPath) { $existing = @(Get-Content -Path $EnvPath -Encoding UTF8) }
 
   $pattern = "^\s*$([regex]::Escape($Key))\s*="
   $replaced = $false
@@ -81,7 +87,11 @@ function Set-EnvValue {
   if (-not $replaced) { $output = @($output) + "$Key=$Value" }
 
   New-Item -ItemType Directory -Force -Path (Split-Path $EnvPath -Parent) | Out-Null
-  Set-Content -Path $EnvPath -Value $output -Encoding ASCII
+  # Erst daneben schreiben, dann ersetzen - der laufende Agent liest dieselbe
+  # Datei, und der Installer haelt ihn nicht an.
+  $temp = "$EnvPath.installer.tmp"
+  Set-Content -Path $temp -Value $output -Encoding UTF8
+  Move-Item -Path $temp -Destination $EnvPath -Force
 }
 
 function Ensure-BaseEnv {

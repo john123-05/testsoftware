@@ -509,6 +509,16 @@ class LiftpicService:
             )
             return
 
+        # Genau einmal auslösen. Ohne diesen Anspruch würden zwei Agenten den
+        # Auftrag im selben Fenster abholen und die Kamera zweimal auslösen.
+        if not self.store.auftrag_beanspruchen(request_id):
+            log.info(
+                "test photo order '%s' was already carried out - acknowledging only",
+                request_id,
+            )
+            self._pending_restart_ack = request_id or "done"
+            return
+
         log.warning("triggering test photo on dashboard order '%s' (mode=%s)",
                     request_id, mode)
         ergebnis = trigger_test_photo(self.settings)
@@ -832,6 +842,18 @@ class LiftpicService:
                 self.settings.viewer_night_start,
                 self.settings.viewer_night_end,
             )
+            return
+
+        # Ab hier wird wirklich etwas angehalten. Der Anspruch steht deshalb
+        # genau hier und nicht weiter oben: ein `tonight`-Auftrag durchlaeuft
+        # die Pruefungen oben stundenlang, ohne ausgefuehrt zu werden - wuerde
+        # er dabei beansprucht, ginge er nachts nie los.
+        if not self.store.auftrag_beanspruchen(request_id):
+            log.info(
+                "restart order '%s' was already carried out - acknowledging only",
+                request_id,
+            )
+            self._pending_restart_ack = request_id or "done"
             return
 
         log.warning(

@@ -111,6 +111,25 @@ class StateStore:
                 WHERE event_key IS NULL
                 """
             )
+        # Welche Dashboard-Auftraege schon ausgefuehrt wurden (F-025). Der
+        # Primaerschluessel ist die Absicherung: ein zweites INSERT derselben
+        # Kennung scheitert, und genau daran erkennt der zweite Agent, dass er
+        # den Auftrag nicht noch einmal ausfuehren darf.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS handled_orders (
+                request_id TEXT PRIMARY KEY,
+                handled_at REAL NOT NULL
+            )
+            """
+        )
+        # Alte Eintraege verfallen. Ein Auftrag, der 30 Tage zurueckliegt, kann
+        # nicht mehr offen sein - und die Tabelle soll nicht ewig wachsen.
+        cur.execute(
+            "DELETE FROM handled_orders WHERE handled_at < ?",
+            (time.time() - 30 * 86400,),
+        )
+
         # Wer eine Zeile gerade hochlaedt, und seit wann (F-025). Ohne diese
         # beiden Spalten waehlten zwei Agenten dieselben Zeilen aus und luden
         # jedes Foto zweimal hoch.
@@ -408,6 +427,36 @@ class StateStore:
                 [(anspruch, now, row["event_key"]) for row in rows],
             )
         return rows
+
+    def auftrag_beanspruchen(self, request_id: str) -> bool:
+        """Diesen Auftrag genau einmal ausfuehren duerfen (F-025).
+
+        `True` heisst: wir haben ihn, und niemand sonst bekommt ihn. `False`
+        heisst: ein anderer Durchlauf oder ein anderer Agent hat ihn bereits
+        ausgefuehrt - wir quittieren nur noch.
+
+        Warum ueberhaupt: die Quittung lag bisher nur im Hauptspeicher
+        (`_pending_restart_ack`). Der Auftrag bleibt beim Server offen, bis die
+        Quittung im naechsten Abruf ankommt - mindestens 20 Sekunden. In diesem
+        Fenster holen ihn zwei Agenten ab und fuehren ihn **beide** aus. Beim
+        Verkaufsprogramm heisst das im schlimmsten Fall: der eine startet es,
+        der andere haelt genau dieses frisch gestartete Programm wieder an, und
+        der Automat steht - denn keines dieser Programme steht im Autostart.
+
+        Der Anspruch ueberlebt auch einen Neustart des Agenten, weil er in der
+        Datenbank steht und nicht im Speicher.
+        """
+        if not request_id:
+            return True  # ohne Kennung laesst sich nichts unterscheiden
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO handled_orders (request_id, handled_at) VALUES (?, ?)",
+                    (request_id, time.time()),
+                )
+            return True
+        except sqlite3.IntegrityError:
+            return False
 
     def release_upload(self, event_key: str) -> None:
         """Einen Anspruch zuruecknehmen, ohne ihn als erledigt zu buchen.

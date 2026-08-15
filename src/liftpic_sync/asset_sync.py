@@ -222,10 +222,30 @@ class AssetSyncWorker:
 
     @staticmethod
     def _atomic_write(target: Path, data: bytes) -> None:
+        """Schreiben, ohne dass ein halbes Bild im Verkaufsprogramm landet.
+
+        Der Name der Zwischendatei traegt die Prozessnummer (F-025). Vorher war
+        er fest aus dem Ziel abgeleitet und damit fuer zwei Agenten identisch:
+        beide schrieben in dieselbe Datei, die erste `replace()` verschob sie,
+        die zweite scheiterte - und im unguenstigen Fall lag eine halb
+        geschriebene `hintergrund.png` in `C:\\liftpic\\samuel_neu`.
+
+        `replace()` selbst ist auf einem Datentraeger atomar; nur der
+        Schreibschritt davor war es nicht.
+        """
         target.parent.mkdir(parents=True, exist_ok=True)
-        temp = target.with_name(f"{target.name}.liftpic-sync.tmp")
-        temp.write_bytes(data)
-        temp.replace(target)
+        temp = target.with_name(f"{target.name}.{os.getpid()}.liftpic-sync.tmp")
+        try:
+            temp.write_bytes(data)
+            temp.replace(target)
+        finally:
+            # Scheitert das Ersetzen (Zieldatei vom Verkaufsprogramm gehalten),
+            # bleibt sonst eine Leiche neben dem Original liegen.
+            if temp.exists():
+                try:
+                    temp.unlink()
+                except OSError:
+                    log.warning("could not remove temp file %s", temp)
 
     @staticmethod
     def _deployment_id(asset: dict[str, Any]) -> str:
