@@ -28,6 +28,26 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-036 — `preflight` meldet die falsche Sitzung
+Status:     offen
+Gesehen:    16.08.2026 beim Imst-Rollout
+Beleg:      `preflight` sagte „Benutzersitzung – Neustarts sind möglich und
+            sichtbar." Der Agent meldet für denselben Automaten
+            `session_zero: true`. Beides zugleich kann nicht stimmen.
+Ursache:    `preflight` misst die Sitzung **des Prozesses, der es ausführt** —
+            also die PowerShell des Monteurs. Der Agent läuft dort aber als
+            Aufgabe unter SYSTEM, in Sitzung 0. Gemessen wurde die richtige
+            Frage am falschen Prozess.
+Folge:      Der Bericht behauptet, Neustart-Knöpfe würden funktionieren, wo sie
+            es nicht tun. Beim Rollout hat es nichts angerichtet, weil der
+            Herzschlag des Agenten die maßgebliche Antwort liefert und diese
+            korrekt war — die Knöpfe blieben richtigerweise aus. Wer sich aber
+            auf `preflight` verlässt, entscheidet auf falscher Grundlage.
+Behebung:   offen. `preflight` müsste die Sitzung der Autostart-Aufgabe
+            ermitteln (Konto und Trigger auslesen), nicht die eigene — oder
+            ehrlich sagen, dass es nur über sich selbst Auskunft geben kann.
+Wiederkehr: —
+
 ## F-035 — Die Ausweichsperre aus AP-1.1 erlaubte zwei Agenten
 Status:     behoben (16.08.2026) — **selbst verursacht**
 Gesehen:    16.08.2026 00:36, auf dem Testrechner
