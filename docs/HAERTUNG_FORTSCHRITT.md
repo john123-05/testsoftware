@@ -150,10 +150,18 @@ einem nie dagewesenen zu unterscheiden.
 
 ## AP-6 — Rückweg und Versionierung
 
-- [ ] 6.1 Echte Version statt konstant `0.1.0`
-- [ ] 6.4 `scripts/update_liftpic.ps1` — stoppt sauber, sichert `.env`/`state`
-      inkl. `-wal`/`-shm`/Aufgabe, **koppelt nicht neu**, endet mit `preflight`
-- [ ] 6.5 `scripts/rollback_lokal.ps1` — Ordnersicherung zurück, ohne Git
+- [x] 6.1 Version auf `0.2.0` in `__init__.py` **und** `pyproject.toml`, ein
+      Test hält beide gleich. Sie stand monatelang konstant auf `0.1.0` — am
+      Server war damit nicht ablesbar, welcher Stand auf einem Automaten läuft.
+- [x] 6.4 `scripts/update_liftpic.ps1` — hält an und **wartet**, sichert
+      `.env`, `state\` inkl. `-wal`/`-shm`, die exportierte Aufgabe und den
+      Programmstand, installiert aus einem Tag, **koppelt nicht neu** wenn ein
+      Gerätetoken da ist (das Koppeln würde 16 Schlüssel überschreiben), und
+      endet mit `preflight`. Bricht ab, wenn der alte Agent nicht weggeht —
+      statt zwei Codestände zu mischen.
+- [x] 6.5 `scripts/rollback_lokal.ps1` — spielt die Ordnersicherung zurück,
+      ohne Git. Das mitgelieferte `rollback.ps1` macht `git checkout` und ist
+      auf einem Automaten unbrauchbar, weil dort kein Repo liegt.
 
 ## AP-7 — Simulation (Tor zum Merge)
 

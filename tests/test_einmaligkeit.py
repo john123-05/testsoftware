@@ -325,3 +325,21 @@ def test_protokoll_nennt_die_prozessnummer(tmp_path: Path):
 
     assert f"pid={os.getpid()}" in inhalt
     assert "probe" in inhalt
+
+
+def test_version_stimmt_ueberall_ueberein():
+    """Sonst meldet der Automat eine andere Version als die installierte.
+
+    Die Zahl stand monatelang konstant auf 0.1.0 - damit war am Server nicht
+    ablesbar, welcher Stand auf einem Automaten laeuft. Wenn sie schon gepflegt
+    wird, muss sie an beiden Stellen dieselbe sein.
+    """
+    import tomllib
+    from pathlib import Path as P
+
+    import liftpic_sync
+
+    pyproject = P(__file__).resolve().parents[1] / "pyproject.toml"
+    daten = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+
+    assert daten["project"]["version"] == liftpic_sync.__version__
