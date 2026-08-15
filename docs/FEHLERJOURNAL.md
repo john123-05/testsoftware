@@ -28,6 +28,39 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-031 — Ein Deploy sperrte alle Automaten aus `liftpic-config` aus
+Status:     offen — **braucht einen Handgriff im Supabase-Dashboard**
+Gesehen:    15.08.2026 abends, unmittelbar nach dem Ausrollen von AP-5
+Beleg:      `curl` gegen die Function mit einem Gerätetoken:
+            `HTTP 401 {"code":"UNAUTHORIZED_INVALID_JWT_FORMAT"}`
+            Das Tor weist ab, **bevor** die Function läuft.
+Ursache:    Der Deploy über die Programmierschnittstelle (MCP) setzt
+            `verify_jwt` **immer auf `true`** und ignoriert die Vorgabe aus
+            `supabase/config.toml`. Dreimal versucht — mit funktionseigener
+            `config.toml` und mit der Datei an der Repo-Stelle —, beides
+            wirkungslos. Die Automaten melden sich mit einem Gerätetoken, das
+            kein JWT ist.
+Umfang:     Nur `liftpic-config`. Geprüft: `liftpic-ingest-begin`,
+            `liftpic-ingest-commit`, `liftpic-status` und `liftpic-assets`
+            stehen unverändert auf `verify_jwt = false`. Foto-Upload,
+            Herzschlag und Asset-Abgleich liefen durchgehend weiter — Imst
+            meldete währenddessen normal (1145 Fotos, Warteschlange 0).
+            Ausgefallen sind Fernkonfiguration und Kopplung.
+Behebung:   Im Dashboard: Edge Functions → `liftpic-config` → Settings →
+            „Verify JWT" aus. Oder mit der Befehlszeile:
+            `supabase functions deploy liftpic-config --no-verify-jwt`
+Wiederkehr: —
+
+**Regel, die daraus folgt:** Die vier Automaten-Functions
+(`liftpic-config`, `liftpic-status`, `liftpic-ingest-begin`,
+`liftpic-ingest-commit`, `liftpic-assets`) dürfen **nicht** über die
+Programmierschnittstelle ausgerollt werden — sie verwenden alle
+Gerätetokens statt JWTs, und jeder Deploy auf diesem Weg sperrt sie zu.
+Nur über die Supabase-Befehlszeile mit `--no-verify-jwt`.
+
+Ein Rückrollen auf die vorherige Fassung hilft **nicht**: jeder Deploy über
+denselben Weg setzt den Schalter erneut.
+
 ## F-024 — Der Doppelstart-Schutz ist seit dem 08.08.2026 wirkungslos
 Status:     behoben (15.08.2026, AP-1.1) — **die Ursache besteht fort**
             Die Rechte an `C:\ProgramData\liftpic-sync\singleton.lock` sind

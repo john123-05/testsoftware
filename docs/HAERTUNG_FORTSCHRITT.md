@@ -130,9 +130,23 @@ einem nie dagewesenen zu unterscheiden.
 
 ## AP-5 — Merkmale aus der Ferne schalten
 
-- [ ] `config_to_env` um die neuen Schlüssel erweitern, aus `settings` gespeist,
-      ohne Zurücksetzen auf Vorgabewerte
+- [x] `config_to_env` um 13 Schlüssel erweitert, aus dem `settings`-Feld der
+      Maschine gespeist. **Andere Regel als die Haupttabelle:** ein fehlender
+      Eintrag lässt den Wert am Automaten stehen, statt ihn auf einen
+      Vorgabewert zurückzusetzen — sonst würde eine Anlage mit eigenen Pfaden
+      beim nächsten Abruf plattgemacht. Sieben Tests.
+- [x] `liftpic-config` liefert `settings` mit
+- [ ] **BLOCKIERT — siehe F-031:** Der Deploy hat `verify_jwt` auf `true`
+      gesetzt und sperrt damit alle Automaten aus dieser Function aus. Muss im
+      Supabase-Dashboard abgeschaltet werden (Edge Functions → `liftpic-config`
+      → Settings → „Verify JWT"). Erst danach wirken die Fernschalter.
 - [ ] (Super-Admin-Oberfläche wartet bewusst — wird gerade überarbeitet)
+
+> **Regel für alle Automaten-Functions:** `liftpic-config`, `liftpic-status`,
+> `liftpic-ingest-begin`, `liftpic-ingest-commit` und `liftpic-assets` dürfen
+> **nicht** über die Programmierschnittstelle ausgerollt werden. Sie verwenden
+> Gerätetokens statt JWTs, und jeder Deploy auf diesem Weg sperrt sie zu. Nur
+> über die Supabase-Befehlszeile mit `--no-verify-jwt`.
 
 ## AP-6 — Rückweg und Versionierung
 
