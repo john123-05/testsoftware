@@ -93,6 +93,87 @@ def test_running_process_does_not_soften_a_lost_camera():
     assert nach["Verkaufsprogramm"]["detail"].startswith("Programm laeuft")
 
 
+def test_fremde_debug_log_wird_nicht_zum_verkaufsprogramm(tmp_path: Path):
+    """`debug.log` heisst bei jedem zweiten Programm so (F-030).
+
+    Eine `debug.log` unter `CAMware\\` wurde als "Verkaufsprogramm" gefuehrt
+    und verschmolz per merge_key mit dem echten. Unter dessen Kachel stand dann
+    der Rohtext eines voellig anderen Programms.
+    """
+    fremd = tmp_path / "CAMware"
+    fremd.mkdir()
+    (fremd / "debug.log").write_text(
+        "15.08.2026 10:00:00 ERROR Kameratreiber antwortet nicht\n", encoding="utf-8",
+    )
+
+    status = read_operational_status(
+        make_settings(tmp_path, (str(fremd / "*.log"),))
+    )
+    namen = {d.name for d in status.devices}
+
+    assert "Verkaufsprogramm" not in namen, "die Datei gehoert CAMware, nicht dem Viewer"
+    assert status.devices, "sie darf aber auch nicht verschwinden"
+
+
+def test_eigene_debug_log_bleibt_das_verkaufsprogramm(tmp_path: Path):
+    """Die Gegenprobe: im Ordner des Verkaufsprogramms gilt der Name weiter."""
+    eigen = tmp_path / "samuel_neu"
+    eigen.mkdir()
+    (eigen / "debug.log").write_text(
+        "15.08.2026 10:00:00 ERROR Druckauftrag abgebrochen\n", encoding="utf-8",
+    )
+
+    status = read_operational_status(
+        make_settings(tmp_path, (str(eigen / "*.log"),))
+    )
+
+    assert "Verkaufsprogramm" in {d.name for d in status.devices}
+
+
+def test_unbekanntes_stilles_protokoll_verschwindet_nicht(tmp_path: Path):
+    """Ohne Fehlerwort wurde die Datei frueher verworfen (F-030).
+
+    Ein sauber laufendes, unbekanntes Programm war fuer die Seite damit nicht
+    existent - man konnte nicht einmal sehen, dass es eine Quelle gibt.
+    """
+    ordner = tmp_path / "sonstwas"
+    ordner.mkdir()
+    (ordner / "ablauf.log").write_text(
+        "15.08.2026 10:00:00 Zyklus 4711 beendet\n", encoding="utf-8",
+    )
+
+    status = read_operational_status(
+        make_settings(tmp_path, (str(ordner / "*.log"),))
+    )
+
+    assert status.devices, "die Quelle muss sichtbar sein"
+    assert any("ablauf.log" in (d.tech or "") for d in status.devices)
+
+
+def test_protokoll_wird_auch_ohne_passendes_muster_gefunden(tmp_path: Path, monkeypatch):
+    """Der Kern von AP-2: andere Pfade, andere Namen - trotzdem gefunden.
+
+    Die konfigurierten Muster sind eine Vorgabe, keine Wahrheit. Auf dem Imster
+    Automaten deckten sie weder Verkaufsprogramm noch Uploader noch Terminal ab;
+    bei 1145 Fotos am Tag meldete er null Geraete und null Ereignisse.
+    """
+    anders = tmp_path / "programme" / "kamera-neu"
+    anders.mkdir(parents=True)
+    (anders / "3gerlog.txt").write_text(
+        "15.08.2026 10:11:42\tDevice lost\n", encoding="utf-8",
+    )
+
+    # Ein Muster, das NICHTS trifft - aber auf einen Nachbarordner zeigt.
+    # Daraus leitet die Suche `programme` ab und findet `kamera-neu`.
+    status = read_operational_status(
+        make_settings(tmp_path, (str(tmp_path / "programme" / "gibtesnicht" / "*.log"),))
+    )
+
+    assert "Kamera-Software" in {d.name for d in status.devices}, (
+        "die Selbstsuche muss die Datei finden, obwohl kein Muster passt"
+    )
+
+
 def test_camera_recovers_when_it_reconnects(tmp_path: Path):
     """Nach "Device lost" muss die Kamera auch wieder gruen werden koennen.
 

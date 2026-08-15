@@ -343,18 +343,130 @@ def _kind_order(kind: str) -> int:
     return order.index(kind) if kind in order else len(order)
 
 
-def _iter_log_files(patterns: tuple[str, ...]) -> list[Path]:
-    found: dict[str, Path] = {}
+# Wo zusaetzlich selbst gesucht wird, wenn die Muster nichts hergeben.
+#
+# Die konfigurierten Muster sind eine Vorgabe, keine Wahrheit: sie stammen von
+# einem PC, auf dem alles am erwarteten Ort lag. Auf einem Automaten mit anderen
+# Ordnernamen fanden sie nichts, und die Seite blieb leer - ohne dass irgendwo
+# stand, dass gar nicht gesucht wurde (F-030).
+# Dateinamen, die zu haeufig sind, um allein etwas zu beweisen.
+GENERISCHE_NAMEN = {"errors.log", "debug.log", "watchdog.log"}
+
+# Ordner, die nachweislich einem ANDEREN Geraet gehoeren. Liegt eine Datei mit
+# generischem Namen dort, gehoert sie diesem Programm - nicht dem
+# Verkaufsprogramm. Der Ordner des Verkaufsprogramms steht hier bewusst nicht.
+FREMDE_ORDNER = {
+    "3gertis", "camware", "tiscapture", "kosel", "terminal", "imageloader",
+    "liftpic-sync", "jpeg4web", "dist", "log", "logs",
+}
+
+SUCH_TIEFE = 3
+LOG_ENDUNGEN = {".log", ".txt"}
+# Ordner, in denen nichts Protokollartiges liegt und die gross werden koennen.
+SUCH_AUSNAHMEN = {
+    "fotos", "out", "webout", "qrcode", "backups", "state", ".venv",
+    "__pycache__", ".git", "node_modules", "buttons", "sounds", "dist",
+}
+
+
+def _such_wurzeln(patterns: tuple[str, ...]) -> list[Path]:
+    """Wo gesucht wird - abgeleitet aus den konfigurierten Mustern.
+
+    Bewusst kein fester Pfad: die Muster sagen bereits, wo die Anlage ihre
+    Sachen hat. Aus `C:\\liftpic\\3GerTis\\*.log` wird `C:\\liftpic\\3GerTis`
+    und dessen Elternordner `C:\\liftpic` - damit findet die Suche auch
+    Nachbarordner, die in keinem Muster stehen. Auf einem Automaten mit ganz
+    anderem Ablageort wandert die Suche automatisch mit.
+    """
+    wurzeln: dict[str, Path] = {}
     for pattern in patterns:
-        for match in glob.glob(pattern):
+        teile: list[str] = []
+        for teil in Path(pattern).parts:
+            if any(z in teil for z in "*?["):
+                break
+            teile.append(teil)
+        if len(teile) < 2:
+            continue
+        ordner = Path(*teile)
+        for kandidat in (ordner, ordner.parent):
+            # Nicht bis zum Laufwerksbuchstaben hochlaufen.
+            if len(kandidat.parts) >= 2:
+                wurzeln.setdefault(str(kandidat).lower(), kandidat)
+    return list(wurzeln.values())
+
+
+def _selbst_suchen(bereits: dict[str, Path], grenze: int, patterns: tuple[str, ...]) -> None:
+    """Unter den abgeleiteten Wurzeln nach Protokolldateien sehen.
+
+    Ergaenzt, was die Muster nicht abgedeckt haben. Bewusst flach (drei Ebenen)
+    und ohne die grossen Bilderordner, damit das nicht bei jedem Durchlauf ueber
+    zehntausende Fotos laeuft.
+    """
+    for basis in _such_wurzeln(patterns):
+        if not basis.is_dir():
+            continue
+        for tiefe in range(1, SUCH_TIEFE + 1):
+            if len(bereits) >= grenze:
+                return
+            try:
+                kandidaten = basis.glob("/".join(["*"] * tiefe))
+            except OSError:
+                continue
+            for pfad in kandidaten:
+                if len(bereits) >= grenze:
+                    return
+                try:
+                    if pfad.suffix.lower() not in LOG_ENDUNGEN or not pfad.is_file():
+                        continue
+                    if any(teil.lower() in SUCH_AUSNAHMEN for teil in pfad.parts):
+                        continue
+                    if pfad.stat().st_size == 0:
+                        continue
+                except OSError:
+                    continue
+                bereits.setdefault(str(pfad).lower(), pfad)
+
+
+def _iter_log_files(patterns: tuple[str, ...], grenze: int = 200) -> list[Path]:
+    """Alle Protokolldateien, neueste zuerst.
+
+    Erst die konfigurierten Muster, dann die eigene Suche. Die Obergrenze lag
+    frueher bei 60 und schnitt nach dem Alter ab - auf einem Automaten mit
+    vielen alten Dateien konnten damit die interessanten herausfallen.
+    """
+    # Was ein Muster trifft, ist beabsichtigt und geht IMMER mit. Was die
+    # Selbstsuche findet, fuellt nur auf.
+    #
+    # Beides in einen Topf zu werfen war ein Fehler: die Suche brachte auf
+    # diesem PC 200 Dateien, und weil nach Aenderungsdatum abgeschnitten wurde,
+    # fielen aeltere, aber wichtige Protokolle heraus - die Lichtschranke
+    # verschwand aus der Anzeige, obwohl sie vorher da war.
+    aus_mustern: dict[str, Path] = {}
+    for pattern in patterns:
+        # `recursive=True`, damit ein `**` im Muster auch wirkt. Ohne das
+        # verhielt sich `**` wie ein einfaches `*` - eine stille Falle fuer
+        # jeden, der ein Muster von Hand eintraegt.
+        for match in glob.glob(pattern, recursive=True):
             path = Path(match)
             if path.is_file():
-                found[str(path).lower()] = path
-    return sorted(
-        found.values(),
-        key=lambda path: path.stat().st_mtime if path.exists() else 0,
-        reverse=True,
-    )[:60]
+                aus_mustern[str(path).lower()] = path
+
+    gefunden: dict[str, Path] = dict(aus_mustern)
+    _selbst_suchen(gefunden, grenze, patterns)
+    nur_gefunden = {k: v for k, v in gefunden.items() if k not in aus_mustern}
+
+    def nach_alter(werte) -> list[Path]:
+        return sorted(
+            werte,
+            key=lambda path: path.stat().st_mtime if path.exists() else 0,
+            reverse=True,
+        )
+
+    ergebnis = nach_alter(aus_mustern.values())[:grenze]
+    platz = grenze - len(ergebnis)
+    if platz > 0:
+        ergebnis.extend(nach_alter(nur_gefunden.values())[:platz])
+    return ergebnis
 
 
 def _identify(path: Path, lines: list[str]) -> tuple[str, str] | None:
@@ -370,11 +482,26 @@ def _identify(path: Path, lines: list[str]) -> tuple[str, str] | None:
     parent = path.parent.name.lower()
     for fragment, label, kind, tech in KNOWN_SOURCES:
         if fragment in name or fragment in f"{parent}/{name}":
+            # Allerweltsnamen brauchen den passenden Ordner (F-030).
+            #
+            # `errors.log`, `debug.log` und `watchdog.log` heissen bei jedem
+            # zweiten Programm so. Eine `debug.log` unter `CAMware\` oder
+            # `TIScapture\dist\` - beide in den Mustern - wurde dadurch als
+            # "Verkaufsprogramm" gefuehrt und verschmolz per merge_key mit dem
+            # echten. Unter der Kachel des Verkaufsprogramms stand dann der
+            # Rohtext eines voellig anderen Programms.
+            if fragment in GENERISCHE_NAMEN and parent in FREMDE_ORDNER:
+                continue
             return label, kind, tech, True
 
     kind = _guess_kind(path, lines)
     if kind is None:
-        return None
+        # Frueher wurde die Datei hier verworfen (F-030). Ein sauber laufendes,
+        # unbekanntes Programm, das nur "Zyklus 4711 beendet" schreibt, war fuer
+        # die Seite nicht existent - und niemand konnte sehen, dass es
+        # ueberhaupt eine Quelle gibt. Jetzt erscheint es als eigene Quelle,
+        # einsortiert unter "system", damit es die Hauptgeraete nicht verdraengt.
+        kind = "system"
     # Unbekanntes Protokoll: Klarname aus der Kategorie, Dateiname als Technik.
     # Als "nicht bekannt" markiert, damit es sich nicht mit einem anderen
     # fremden Protokoll derselben Kategorie zusammenlegt.

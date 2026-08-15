@@ -173,6 +173,17 @@ class Settings:
             for item in allowed_roots_raw.replace(",", ";").split(";")
             if item.strip()
         )
+        # Wo ein Automat seine Protokolle fuehrt (F-030).
+        #
+        # Diese Vorgabe deckte frueher weder das Verkaufsprogramm noch den
+        # Uploader noch das Kartenterminal ab. Ein Automat ohne handgepflegte
+        # `.env` war damit halb blind: der Imster Automat meldete bei 1145 Fotos
+        # am Tag null Geraete und null Ereignisse, ueber Monate.
+        #
+        # Ergaenzt sind deshalb `samuel_neu` (Verkaufsprogramm samt
+        # Muenzstatistik), `liftpic-sync\logs` (der Uploader selbst) und
+        # `terminal` (ZVT). Die Muster bleiben dennoch eine Vorgabe, keine
+        # Wahrheit - `_iter_log_files` sucht zusaetzlich selbst (siehe dort).
         default_operational_globs = (
             r"C:\liftpic\imageloader\*.txt;"
             r"C:\liftpic\imageloader\*.log;"
@@ -183,7 +194,13 @@ class Settings:
             # that folder only matches leftovers from 2021. Listed explicitly to
             # keep file.txt / path.txt / test.txt out of the evaluation.
             r"C:\liftpic\3GerTis\3gerlog.txt;"
-            r"C:\liftpic\3GerTis\*.log"
+            r"C:\liftpic\3GerTis\*.log;"
+            r"C:\liftpic\samuel_neu\*.log;"
+            r"C:\liftpic\samuel_neu\Log\*.txt;"
+            r"C:\liftpic\samuel_neu\CoinStats.txt;"
+            r"C:\liftpic\terminal\*.txt;"
+            r"C:\liftpic\terminal\*.log;"
+            r"C:\liftpic\liftpic-sync\logs\*.log"
         )
         viewer_exe_raw = _get(values, "VIEWER_EXE", "").strip()
         camera_exe_raw = _get(values, "CAMERA_EXE", "").strip()

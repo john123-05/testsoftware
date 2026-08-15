@@ -74,12 +74,26 @@ nicht eine Empfehlung.
 
 ## AP-2 — Protokolle zuverlässig finden
 
-- [ ] 2.1 Vorgabe-Muster ergänzen (`samuel_neu`, `liftpic-sync\logs`, `terminal`)
-- [ ] 2.2 Selbsterkennung statt fester Muster; Deckel von 60 Dateien prüfen
-- [ ] 2.3 Generische Fragmente (`debug.log`, `errors.log`, `watchdog.log`)
-      nur mit Ordnerkontext werten
-- [ ] 2.4 Unbekanntes, fehlerfreies Protokoll nicht verwerfen
+- [x] 2.1 Vorgabe-Muster ergänzt: `samuel_neu\*.log`, `samuel_neu\Log\*.txt`,
+      `CoinStats.txt`, `terminal\*`, `liftpic-sync\logs\*.log`
+- [x] 2.2 Selbsterkennung — die Suchorte werden **aus den Mustern abgeleitet**
+      (Ordner vor dem ersten Platzhalter plus dessen Elternordner), nicht fest
+      verdrahtet. Damit wandert die Suche mit, wenn eine Anlage anders ablegt.
+      Deckel von 60 auf 200, und: Treffer aus Mustern gehen **immer** mit,
+      Fundstücke füllen nur auf. Ohne diese Trennung verdrängten 200
+      Fundstücke ältere, aber wichtige Protokolle. `recursive=True`, damit `**`
+      in einem Muster auch wirklich wirkt.
+- [x] 2.3 Generische Fragmente (`debug.log`, `errors.log`, `watchdog.log`)
+      greifen nicht mehr in Ordnern, die nachweislich einem anderen Gerät
+      gehören
+- [x] 2.4 Unbekanntes, fehlerfreies Protokoll erscheint als eigene Quelle
+      unter „system", statt verworfen zu werden
 - [ ] 2.5 `merge_key` ans Dashboard durchreichen
+
+**Beobachtung dabei (gehört zu AP-3):** die Lichtschranke ist aus der Anzeige
+verschwunden, weil ihre Protokolldatei 54 h alt ist und die Grenze bei 48 h
+liegt. Das ist so gewollt — aber ein verschwundenes Gerät ist derzeit nicht von
+einem nie dagewesenen zu unterscheiden.
 
 ## AP-3 — Keine erfundenen Zahlen
 
