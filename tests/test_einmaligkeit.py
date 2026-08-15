@@ -112,6 +112,104 @@ def test_die_drei_zustaende_schliessen_sich_aus():
         assert [e.gesperrt, e.belegt, e.ungesichert].count(True) == 1
 
 
+# ------------------------------------------------- Anspruch auf Uploads
+
+def _foto(store, event_key: str) -> None:
+    from liftpic_sync.state import PhotoEvent
+
+    store.upsert_event(PhotoEvent(
+        capture_id=event_key,
+        raw_path=None,
+        processed_path=f"C:/liftpic/fotos/qrcode/{event_key}.jpg",
+        legacy_filename=f"{event_key}.jpg",
+        captured_at="2026-08-15T10:00:00",
+        speed_kmh=None,
+        speed_status="missing",
+        upload_status="queued",
+        checksum="x",
+        event_key=event_key,
+    ), metadata={})
+
+
+def test_zwei_agenten_greifen_nicht_dasselbe_foto(tmp_path: Path):
+    """Der Kern von F-025.
+
+    Frueher war `due_uploads` ein reines SELECT. Zwei Agenten waehlten damit
+    garantiert dieselben Zeilen - gleiche Sortierung, gleiches Limit - und
+    luden jedes Foto zweimal hoch, weil der Status erst nach dem fertigen
+    Upload wechselte.
+    """
+    from liftpic_sync.state import StateStore
+
+    db = tmp_path / "state.db"
+    a = StateStore(db)
+    b = StateStore(db)
+    try:
+        for i in range(3):
+            _foto(a, f"foto-{i}")
+
+        erste = list(a.due_uploads())
+        zweite = list(b.due_uploads())
+
+        assert len(erste) == 3, "der erste Agent bekommt alles"
+        assert zweite == [], "der zweite darf nichts davon sehen"
+        # Und es steht dran, wer sie hat.
+        assert all(r["upload_status"] == "uploading" for r in
+                   a.conn.execute("SELECT upload_status FROM photo_events"))
+    finally:
+        a.close()
+        b.close()
+
+
+def test_abgestuerzter_upload_wird_wieder_frei(tmp_path: Path):
+    """Ein Absturz mitten im Upload darf die Zeile nicht fuer immer blockieren.
+
+    Deshalb eine Verfallszeit statt eines Kennzeichens, das niemand mehr
+    zuruecksetzt.
+    """
+    from liftpic_sync.state import StateStore
+
+    store = StateStore(tmp_path / "state.db")
+    try:
+        _foto(store, "foto-1")
+        assert len(list(store.due_uploads())) == 1
+        assert list(store.due_uploads()) == [], "solange der Anspruch gilt: gesperrt"
+
+        # Den Anspruch kuenstlich altern lassen.
+        store.conn.execute(
+            "UPDATE photo_events SET claimed_at = claimed_at - ?",
+            (StateStore.ANSPRUCH_GILT_SEKUNDEN + 60,),
+        )
+        store.conn.commit()
+
+        assert len(list(store.due_uploads())) == 1, "nach Ablauf wieder faellig"
+    finally:
+        store.close()
+
+
+def test_fehlversuch_gibt_den_anspruch_zurueck(tmp_path: Path):
+    """Nach einem Fehlschlag muss die Zeile wieder aufgreifbar sein - sonst
+    wartet sie unnoetig bis zum Ablauf der Verfallszeit."""
+    from liftpic_sync.state import StateStore
+
+    store = StateStore(tmp_path / "state.db")
+    try:
+        _foto(store, "foto-1")
+        list(store.due_uploads())
+        store.mark_retry("foto-1", "Netz weg", retry_after=0)
+
+        zeile = store.conn.execute(
+            "SELECT upload_status, claimed_by, claimed_at FROM photo_events"
+        ).fetchone()
+
+        assert zeile["upload_status"] == "retry"
+        assert zeile["claimed_by"] is None
+        assert zeile["claimed_at"] is None
+        assert len(list(store.due_uploads())) == 1
+    finally:
+        store.close()
+
+
 def test_protokoll_nennt_die_prozessnummer(tmp_path: Path):
     """Ohne Prozessnummer ist Doppelbetrieb nicht nachweisbar (F-026).
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -48,7 +49,12 @@ class StateStore:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.db_path))
+        # `timeout` ist die Wartezeit auf eine gesperrte Datenbank. Der
+        # Python-Vorgabewert von 5 Sekunden war zu knapp: bei zwei Schreibern
+        # endete jeder Konflikt in "database is locked", und run_forever
+        # verschluckte den ganzen Durchlauf mit "run_once failed" - was wie ein
+        # Plattenproblem aussieht und nicht wie ein zweiter Agent (F-025).
+        self.conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         self.conn.row_factory = sqlite3.Row
         self.migrate()
 
@@ -58,6 +64,9 @@ class StateStore:
     def migrate(self) -> None:
         cur = self.conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL")
+        # Dasselbe noch einmal auf Datenbankebene, damit es auch fuer
+        # Verbindungen gilt, die nicht ueber __init__ kommen.
+        cur.execute("PRAGMA busy_timeout=30000")
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS schema_state (
@@ -100,6 +109,23 @@ class StateStore:
                 UPDATE photo_events
                 SET event_key = substr(captured_at, 1, 10) || '|unknown|' || capture_id
                 WHERE event_key IS NULL
+                """
+            )
+        # Wer eine Zeile gerade hochlaedt, und seit wann (F-025). Ohne diese
+        # beiden Spalten waehlten zwei Agenten dieselben Zeilen aus und luden
+        # jedes Foto zweimal hoch.
+        if "claimed_by" not in columns:
+            cur.execute("ALTER TABLE photo_events ADD COLUMN claimed_by TEXT")
+        if "claimed_at" not in columns:
+            cur.execute("ALTER TABLE photo_events ADD COLUMN claimed_at REAL")
+            # Eine Anlage, die beim Update mitten im Upload stand, haette sonst
+            # Zeilen auf 'uploading' ohne Zeitstempel - die waeren nie wieder
+            # faellig. Solche Zeilen werden einmalig freigegeben.
+            cur.execute(
+                """
+                UPDATE photo_events
+                SET upload_status='queued'
+                WHERE upload_status='uploading'
                 """
             )
         photo_columns = cur.execute("PRAGMA table_info(photo_events)").fetchall()
@@ -335,18 +361,69 @@ class StateStore:
         self.conn.commit()
         return exists is None
 
+    # Wie lange ein beanspruchter Upload als "in Arbeit" gilt, bevor ihn ein
+    # anderer Durchlauf wieder aufgreifen darf. Grosszuegig genug fuer ein
+    # grosses Bild bei schlechter Leitung, kurz genug, dass ein Absturz die
+    # Zeile nicht fuer immer blockiert.
+    ANSPRUCH_GILT_SEKUNDEN = 600
+
     def due_uploads(self, limit: int = 20) -> Iterable[sqlite3.Row]:
+        """Die naechsten Uploads - und sie gehoeren danach uns allein.
+
+        Frueher war das ein reines SELECT (F-025). Zwei Agenten waehlten damit
+        garantiert dieselben Zeilen aus - gleiche Sortierung, gleiches Limit -
+        und luden **jedes Foto zweimal** hoch. Der Status wechselte erst nach
+        dem fertigen Upload, das Zeitfenster war also der ganze Upload.
+
+        Jetzt wird in einer Transaktion beansprucht: die Zeilen wechseln sofort
+        auf 'uploading' und tragen, wer sie hat. Ein zweiter Agent sieht sie
+        dadurch nicht mehr. Laeuft ein Anspruch ab (Absturz mitten im Upload),
+        wird die Zeile wieder frei - deshalb die Verfallszeit statt eines
+        Kennzeichens, das niemand mehr zuruecksetzt.
+        """
         now = time.time()
-        return self.conn.execute(
+        verfallen = now - self.ANSPRUCH_GILT_SEKUNDEN
+        anspruch = f"{os.getpid()}@{time.time():.0f}"
+        with self.conn:  # eine Transaktion: auswaehlen und beanspruchen
+            rows = self.conn.execute(
+                """
+                SELECT * FROM photo_events
+                WHERE (
+                        (upload_status IN ('queued', 'retry') AND retry_after <= ?)
+                     OR (upload_status = 'uploading' AND claimed_at <= ?)
+                      )
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (now, verfallen, limit),
+            ).fetchall()
+            if not rows:
+                return []
+            self.conn.executemany(
+                """
+                UPDATE photo_events
+                SET upload_status='uploading', claimed_by=?, claimed_at=?
+                WHERE event_key=?
+                """,
+                [(anspruch, now, row["event_key"]) for row in rows],
+            )
+        return rows
+
+    def release_upload(self, event_key: str) -> None:
+        """Einen Anspruch zuruecknehmen, ohne ihn als erledigt zu buchen.
+
+        Gebraucht, wenn ein Durchlauf abbricht, bevor der Upload entschieden
+        ist - sonst wartet die Zeile bis zum Ablauf der Verfallszeit.
+        """
+        self.conn.execute(
             """
-            SELECT * FROM photo_events
-            WHERE upload_status IN ('queued', 'retry')
-              AND retry_after <= ?
-            ORDER BY created_at ASC
-            LIMIT ?
+            UPDATE photo_events
+            SET upload_status='queued', claimed_by=NULL, claimed_at=NULL
+            WHERE event_key=? AND upload_status='uploading'
             """,
-            (now, limit),
-        ).fetchall()
+            (event_key,),
+        )
+        self.conn.commit()
 
     def mark_uploaded(self, event_key: str, storage_path: str, raw_storage_path: str | None = None) -> None:
         self.conn.execute(
@@ -356,7 +433,9 @@ class StateStore:
                 storage_path=?,
                 raw_storage_path=?,
                 error=NULL,
-                updated_at=?
+                updated_at=?,
+                claimed_by=NULL,
+                claimed_at=NULL
             WHERE event_key=?
             """,
             (storage_path, raw_storage_path, time.time(), event_key),
@@ -370,7 +449,9 @@ class StateStore:
             SET upload_status='shadowed',
                 storage_path=?,
                 error=NULL,
-                updated_at=?
+                updated_at=?,
+                claimed_by=NULL,
+                claimed_at=NULL
             WHERE event_key=?
             """,
             (storage_path, time.time(), event_key),
@@ -405,7 +486,9 @@ class StateStore:
                 attempts=attempts + 1,
                 error=?,
                 retry_after=?,
-                updated_at=?
+                updated_at=?,
+                claimed_by=NULL,
+                claimed_at=NULL
             WHERE event_key=?
             """,
             (error[:2000], retry_after, time.time(), event_key),

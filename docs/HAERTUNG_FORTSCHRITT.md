@@ -40,9 +40,15 @@ nicht eine Empfehlung.
       wegen der SYSTEM-Rechte nicht nutzbar, der Ausweichpfad greift, und ein
       zweiter Agent wird abgewiesen (Exit 0, der erste läuft weiter).
 - [x] 1.2 Prozessnummer im Protokollformat (`pid=%(process)d`)
-- [ ] 1.3 Upload-Anspruch atomar (`state.py:338-349`, `uploader.py:24`)
+- [x] 1.3 Upload-Anspruch atomar — `due_uploads` beansprucht die Zeilen in
+      einer Transaktion (`uploading` + `claimed_by`/`claimed_at`), mit
+      Verfallszeit von 600 s, damit ein Absturz nichts dauerhaft blockiert.
+      Migration ergänzt die zwei Spalten und gibt hängende `uploading`-Zeilen
+      einmalig frei. Auf der echten Datenbank (18 Zeilen) durchgelaufen.
 - [ ] 1.4 Neustart-/Testfoto-Auftrag genau einmal (`service.py:161,736-744`)
-- [ ] 1.5 SQLite `busy_timeout` (`state.py:51`)
+- [x] 1.5 SQLite `busy_timeout` 30 s (Verbindung **und** PRAGMA) — vorher
+      endete jeder Schreibkonflikt nach 5 s in „database is locked" und wurde
+      von `run_forever` als „run_once failed" verschluckt
 - [ ] 1.6 Asset-Temp-Datei eindeutig (`asset_sync.py:226`)
 - [ ] 1.7 `.env` atomar schreiben (`envfile.py:85`) + UTF-8 im Installer
 - [ ] 1.8 Startwege entwirren (`install_windows_service.ps1:14-33`,
