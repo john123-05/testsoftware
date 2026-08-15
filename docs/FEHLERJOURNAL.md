@@ -29,7 +29,12 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 # Offen
 
 ## F-024 — Der Doppelstart-Schutz ist seit dem 08.08.2026 wirkungslos
-Status:     offen (AP-1.1)
+Status:     behoben (15.08.2026, AP-1.1) — **die Ursache besteht fort**
+            Die Rechte an `C:\ProgramData\liftpic-sync\singleton.lock` sind
+            unverändert falsch; der Agent weicht jetzt lediglich aus. Wer die
+            Datei repariert (`icacls`), stellt den systemweiten Schutz wieder
+            her — der Ausweichpfad schützt nur gegen zwei Agenten **desselben
+            Benutzers**, nicht gegen Aufgabe (SYSTEM) neben Handstart.
 Gesehen:    15.08.2026, bei der Erkundung vor dem Imst-Rollout
 Beleg:      `C:\ProgramData\liftpic-sync\singleton.lock` gehört `NT AUTHORITY\SYSTEM`,
             `BUILTIN\Users` hat nur `ReadAndExecute`. `LastWriteTime` ist der
@@ -41,9 +46,21 @@ Ursache:    `cli.py:71-72` fängt den `PermissionError` mit
             `except OSError: return True  # proceed unlocked` ab und
             protokolliert **nichts**. Die Datei wurde einmal von SYSTEM
             angelegt, danach lief der Agent als Benutzer.
-Behebung:   offen — Ausweichpfad `%LOCALAPPDATA%`, und bei endgültigem
-            Fehlschlag weiterlaufen, aber `log.error` plus Verlaufseintrag.
+Behebung:   Drei benannte Zustände statt geratener `None`/`True`-Werte:
+            `gesperrt`, `belegt`, `ungesichert`. Bei einem Rechteproblem wird
+            auf `%LOCALAPPDATA%` ausgewichen; scheitert auch das, läuft der
+            Agent weiter — aber mit `log.error` und einem Verlaufseintrag
+            „Doppelstart-Schutz nicht aktiv". Die Sperre gilt jetzt auch für
+            `scan-once` und `assets`, die beide vollwertige Zweitagenten sind.
+            Sieben Tests in `tests/test_einmaligkeit.py`.
+Beleg nach
+der Behebung: 15.08.2026 19:42 am Testrechner — Ausweichpfad greift auf der
+            echten kaputten Rechtelage, der zweite Agent wird abgewiesen
+            (`pid=5868`, Exit 0), der erste (`pid=12012`) läuft unberührt.
 Wiederkehr: —
+            **Wichtig:** Die Sperre darf jetzt ausfallen, ohne den Betrieb zu
+            stoppen. Die eigentliche Last tragen deshalb F-025 (atomarer
+            Anspruch auf Uploads und Aufträge) — die wirken auch ohne Sperre.
 
 ## F-025 — Kein atomarer Anspruch auf Arbeit
 Status:     offen (AP-1.3, AP-1.4)
@@ -59,13 +76,17 @@ Behebung:   offen — Beanspruchen in einer Transaktion mit Verfallszeit.
 Wiederkehr: —
 
 ## F-026 — Doppelbetrieb ist im Nachhinein nicht nachweisbar
-Status:     offen (AP-1.2)
+Status:     behoben (15.08.2026, AP-1.2)
 Gesehen:    15.08.2026
 Beleg:      `logging_setup.py:17` — Format ohne `%(process)d`. In 11 MB
-            Protokoll ist kein Verdachtsfall entscheidbar.
+            Protokoll ist kein Verdachtsfall entscheidbar. Deshalb wurde die
+            Störung am Imster Automaten monatelang als „401-Problem" gelesen.
 Ursache:    Prozessnummer nie ins Format aufgenommen.
-Behebung:   offen. **Ohne diesen Punkt ist keine Änderung aus AP-1 überprüfbar.**
+Behebung:   `pid=%(process)d` im Format. Test prüft, dass die eigene
+            Prozessnummer in der Datei landet.
 Wiederkehr: —
+            Dies war die Voraussetzung für alles Übrige in AP-1: ohne die
+            Prozessnummer wäre keine der Änderungen überprüfbar gewesen.
 
 ## F-027 — Der Asset-Abgleich legt endlos identische Sicherungen an
 Status:     offen (AP-4)

@@ -33,9 +33,13 @@ nicht eine Empfehlung.
 
 ## AP-1 — Einmaligkeit erzwingen
 
-- [ ] 1.1 Sperre reparieren (`cli.py:60-86`) — Ausweichpfad LOCALAPPDATA,
-      bei endgültigem Fehlschlag weiterlaufen **aber laut melden**
-- [ ] 1.2 Prozessnummer ins Protokollformat (`logging_setup.py:17`)
+- [x] 1.1 Sperre repariert — drei benannte Zustände (`gesperrt`/`belegt`/
+      `ungesichert`), Ausweichpfad LOCALAPPDATA, bei endgültigem Fehlschlag
+      weiterlaufen **aber** `log.error` + Verlaufseintrag. Gilt jetzt auch für
+      `scan-once` und `assets`. Am Testrechner belegt: der systemweite Pfad ist
+      wegen der SYSTEM-Rechte nicht nutzbar, der Ausweichpfad greift, und ein
+      zweiter Agent wird abgewiesen (Exit 0, der erste läuft weiter).
+- [x] 1.2 Prozessnummer im Protokollformat (`pid=%(process)d`)
 - [ ] 1.3 Upload-Anspruch atomar (`state.py:338-349`, `uploader.py:24`)
 - [ ] 1.4 Neustart-/Testfoto-Auftrag genau einmal (`service.py:161,736-744`)
 - [ ] 1.5 SQLite `busy_timeout` (`state.py:51`)
@@ -81,8 +85,11 @@ nicht eine Empfehlung.
 
 ## AP-7 — Simulation (Tor zum Merge)
 
-- [ ] 1 Zweiter Agent von Hand → abgewiesen, beide Prozessnummern im Protokoll
-- [ ] 2 Sperrdatei auf SYSTEM-Rechte → weicht aus, meldet es
+- [x] 1 Zweiter Agent von Hand → abgewiesen (15.08.2026 19:42, `pid=5868`,
+      Exit 0; der erste `pid=12012` lief unberührt weiter)
+- [x] 2 Sperrdatei auf SYSTEM-Rechte → weicht aus, meldet es (das ist die
+      **echte** Lage auf diesem PC, nicht nachgestellt:
+      `ProgramData … [Errno 13] Permission denied … fell back to LOCALAPPDATA`)
 - [ ] 3 Aufgabe **und** Dienst → Installer räumt die andere Startart ab
 - [ ] 4 Update bei laufendem Agenten → kein Enkelprozess übrig
 - [ ] 5 Neustart-Auftrag bei zwei Instanzen → genau ein Neustart
