@@ -45,6 +45,12 @@ AUFTRAG_MAX_ALTER_MINUTEN = 30
 AUTH_REPARATUR_MAX = 10
 
 
+# Wie oft die Besitzmeldung aufgefrischt wird. Deutlich haeufiger als sie
+# gilt (StateStore.BESITZ_GILT_SEKUNDEN = 90), damit ein kurzer Aussetzer sie
+# nicht verfallen laesst - aber nicht bei jedem Schleifendurchlauf.
+BESITZ_AUFFRISCHEN_SEKUNDEN = 30
+
+
 # Stoerungen, die ein laufender Prozess nicht heilen kann.
 #
 # Sonst gilt: laeuft das Programm noch, beschreibt eine Fehlerzeile ein Problem
@@ -163,6 +169,8 @@ class LiftpicService:
         self._auth_repair_gemeldet = False
         # Ob wir schon gemeldet haben, dass ein Bild auf einen Neustart wartet.
         self._asset_neustart_gemeldet = False
+        # Wann die Besitzmeldung zuletzt aufgefrischt wurde.
+        self._letzte_besitzmeldung = 0.0
         self._last_asset_sync = 0.0
         self._last_config_refresh = 0.0
         self._last_payment_scan = 0.0
@@ -219,7 +227,15 @@ class LiftpicService:
             # Bestaetigen, dass wir noch arbeiten, damit ein spaeter startender
             # Agent uns sieht und sich beendet (F-035). Ein abgestuerzter Agent
             # hoert damit auf und gibt den Platz von selbst frei.
-            self.store.besitz_auffrischen(eigene_pid)
+            #
+            # Gedrosselt: die Meldung gilt 90 Sekunden, die Schleife laeuft alle
+            # zwei. Ohne Drossel waeren das 1800 Schreibvorgaenge pro Stunde,
+            # von denen 1740 nichts bewirken - auf einem Automaten mit langsamer
+            # Platte ist das nicht nichts, und der WAL waechst mit.
+            jetzt = time.time()
+            if jetzt - self._letzte_besitzmeldung >= BESITZ_AUFFRISCHEN_SEKUNDEN:
+                self._letzte_besitzmeldung = jetzt
+                self.store.besitz_auffrischen(eigene_pid)
             self._refresh_config_if_due()
             try:
                 self.run_once()
