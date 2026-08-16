@@ -4,6 +4,8 @@ import logging
 import os
 import re
 import shutil
+import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -171,6 +173,10 @@ class LiftpicService:
         self._asset_neustart_gemeldet = False
         # Wann die Besitzmeldung zuletzt aufgefrischt wurde.
         self._letzte_besitzmeldung = 0.0
+        # Ob es eine Autostart-Aufgabe gibt, die uns nach einem Beenden wieder
+        # hochholt. Einmal ermittelt und gemerkt (F-038).
+        self._autostart_vorhanden: bool | None = None
+        self._wachhund_ohne_netz_gemeldet = False
         self._last_asset_sync = 0.0
         self._last_config_refresh = 0.0
         self._last_payment_scan = 0.0
@@ -246,6 +252,53 @@ class LiftpicService:
             self._check_watchdog()
             time.sleep(self.settings.poll_seconds)
 
+    def _darf_sich_beenden(self) -> bool:
+        """Faengt uns jemand auf, wenn wir uns beenden? (F-038)
+
+        Der Wachhund beendet den Prozess, DAMIT die Autostart-Aufgabe einen
+        frischen startet. Gibt es keine solche Aufgabe und keinen Dienst, ist
+        das kein Neustart, sondern ein Abschied: der Automat laedt danach nichts
+        mehr hoch, und weil auch der Herzschlag ausbleibt, sieht man im
+        Dashboard nur noch Schweigen.
+
+        Genau das ist am 16.08.2026 auf dem Testrechner passiert. Um 03:44 fiel
+        das Netz aus, um 03:45 beendete sich der Agent nach Vorschrift - und
+        blieb sieben Stunden weg, weil ihn dort niemand startet.
+
+        Ohne Auffangnetz laufen wir lieber weiter. Ein haengender Agent, der
+        weiter protokolliert, ist besser als gar keiner: die Netzstoerung geht
+        ohnehin vorbei, und der naechste erfolgreiche Herzschlag holt alles
+        Gepufferte nach.
+        """
+        if self._autostart_vorhanden is not None:
+            return self._autostart_vorhanden
+
+        vorhanden = False
+        if sys.platform.startswith("win"):
+            try:
+                fertig = subprocess.run(
+                    ["schtasks", "/query", "/fo", "csv"],
+                    capture_output=True, timeout=30,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                text = (fertig.stdout or b"").decode("utf-8", errors="replace").lower()
+                vorhanden = "liftpic" in text
+            except Exception as exc:
+                # Im Zweifel annehmen, dass es ein Auffangnetz gibt: sonst
+                # wuerde eine fehlgeschlagene Pruefung den Wachhund abschalten.
+                log.warning("could not check for an autostart entry: %s", exc)
+                vorhanden = True
+        else:
+            vorhanden = True
+
+        self._autostart_vorhanden = vorhanden
+        if not vorhanden:
+            log.warning(
+                "no autostart entry found - the watchdog will keep this process "
+                "alive instead of exiting, because nothing would restart it"
+            )
+        return vorhanden
+
     def _check_watchdog(self) -> None:
         """Exit(1) if no heartbeat has reached the server for watchdog_seconds, so
         the scheduled task's restart-on-failure recovers us with a fresh process.
@@ -255,6 +308,23 @@ class LiftpicService:
             return
         stalled_for = time.time() - self._last_heartbeat_ok
         if stalled_for > self.settings.watchdog_seconds:
+            if not self._darf_sich_beenden():
+                # Nur einmal melden, sonst steht der Verlauf alle zwei Sekunden
+                # voll - der Zustand haelt ja an, solange das Netz weg ist.
+                if not self._wachhund_ohne_netz_gemeldet:
+                    self._wachhund_ohne_netz_gemeldet = True
+                    self.store.record_health_event(
+                        kind="uploader", severity="warning",
+                        summary="Keine Verbindung zum Server - Agent laeuft weiter",
+                        detail=(
+                            f"Seit {stalled_for:.0f} Sekunden kam kein Herzschlag durch. "
+                            "Normalerweise beendet sich der Automat jetzt, damit die "
+                            "Autostart-Aufgabe ihn neu startet - hier gibt es aber keine. "
+                            "Er laeuft deshalb weiter, statt sich stillzulegen."
+                        ),
+                    )
+                return
+
             log.critical(
                 "connection watchdog: no successful heartbeat for %.0fs (limit %.0fs) - "
                 "exiting(1) so the scheduled task restarts a fresh process",
@@ -270,6 +340,8 @@ class LiftpicService:
         if self.settings.upload_stall_seconds > 0:
             queued = int(self.store.counts().get("queued", 0))
             if queued > 0 and (time.time() - self._last_upload_ok) > self.settings.upload_stall_seconds:
+                if not self._darf_sich_beenden():
+                    return
                 log.critical(
                     "upload watchdog: %s photos queued but no upload succeeded for >%.0fs - "
                     "exiting(1) for a clean restart",

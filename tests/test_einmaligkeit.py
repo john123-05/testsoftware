@@ -411,3 +411,59 @@ def test_abgestuerzter_agent_gibt_den_platz_frei(tmp_path: Path):
         assert fremd is None
     finally:
         store.close()
+
+
+# ------------------------------- Wachhund ohne Auffangnetz (F-038)
+
+def test_wachhund_beendet_sich_nicht_ohne_autostart(tmp_path: Path, monkeypatch):
+    """Ohne Autostart waere das Beenden ein Abschied, kein Neustart.
+
+    Am 16.08.2026 fiel um 03:44 das Netz aus. Der Wachhund beendete den Agenten
+    um 03:45 nach Vorschrift - damit die Autostart-Aufgabe einen frischen
+    startet. Auf dem Testrechner gibt es aber keine, also blieb er sieben
+    Stunden weg. Im Dashboard sah man nur Schweigen.
+    """
+    from types import SimpleNamespace
+
+    from liftpic_sync.service import LiftpicService
+
+    dienst = object.__new__(LiftpicService)
+    dienst._autostart_vorhanden = False
+    dienst._wachhund_ohne_netz_gemeldet = False
+    dienst._last_heartbeat_ok = 0.0        # laengst ueberfaellig
+    dienst._last_upload_ok = 0.0
+    dienst.settings = SimpleNamespace(watchdog_seconds=600, upload_stall_seconds=0)
+
+    gemeldet = []
+    dienst.store = SimpleNamespace(
+        record_health_event=lambda **kw: gemeldet.append(kw),
+        counts=lambda: {},
+    )
+
+    # Darf NICHT SystemExit ausloesen.
+    dienst._check_watchdog()
+
+    assert gemeldet, "der Zustand muss im Verlauf auftauchen"
+    assert "laeuft weiter" in gemeldet[0]["summary"]
+
+    # Und nur einmal, nicht bei jedem Durchlauf.
+    dienst._check_watchdog()
+    assert len(gemeldet) == 1
+
+
+def test_wachhund_beendet_sich_mit_autostart(tmp_path: Path):
+    """Mit Auffangnetz bleibt das bisherige Verhalten - das ist der Sinn."""
+    from types import SimpleNamespace
+
+    from liftpic_sync.service import LiftpicService
+
+    dienst = object.__new__(LiftpicService)
+    dienst._autostart_vorhanden = True
+    dienst._wachhund_ohne_netz_gemeldet = False
+    dienst._last_heartbeat_ok = 0.0
+    dienst._last_upload_ok = 0.0
+    dienst.settings = SimpleNamespace(watchdog_seconds=600, upload_stall_seconds=0)
+    dienst.store = SimpleNamespace(record_health_event=lambda **kw: None, counts=lambda: {})
+
+    with pytest.raises(SystemExit):
+        dienst._check_watchdog()
