@@ -490,3 +490,32 @@ def test_uebersicht_rechnet_anteile():
     daten = uebersicht.as_dict()
     assert daten["bar_anteil"] == 0.667
     assert daten["karte_anteil"] == 0.333
+
+
+def test_aufteilung_entfaellt_wenn_das_meiste_unbekannt_ist():
+    """Keine Aufteilung erfinden, wenn kaum etwas erkannt wurde (F-037).
+
+    Bei Imst waren 49 von 951 Verkaeufen einer Zahlungsart zuzuordnen - die
+    restlichen 902 nicht, weil es dort kein Kartenprotokoll gibt. Gerechnet
+    wurde die Aufteilung aber ueber die ERKANNTEN, und heraus kam "100 % bar".
+    Eine Aussage ueber 951 Verkaeufe, gestuetzt auf 49.
+    """
+    from liftpic_sync.payments import Zahlungsuebersicht
+
+    u = Zahlungsuebersicht(bar_anzahl=49, karte_anzahl=0, unbekannt_anzahl=902)
+    d = u.as_dict()
+
+    assert d["bar_anteil"] is None, "ohne Grundlage keine Aufteilung"
+    assert d["karte_anteil"] is None
+    # Aber der Anteil des Erkannten wird genannt - damit man weiss, warum.
+    assert d["erkannt_anteil"] == round(49 / 951, 3)
+
+
+def test_aufteilung_erscheint_wenn_genug_erkannt_wurde():
+    from liftpic_sync.payments import Zahlungsuebersicht
+
+    u = Zahlungsuebersicht(bar_anzahl=60, karte_anzahl=40, unbekannt_anzahl=10)
+    d = u.as_dict()
+
+    assert d["bar_anteil"] == 0.6
+    assert d["karte_anteil"] == 0.4

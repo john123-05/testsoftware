@@ -665,16 +665,34 @@ class Zahlungsuebersicht:
     def gesamt_anzahl(self) -> int:
         return self.bar_anzahl + self.karte_anzahl + self.unbekannt_anzahl
 
+    # Ab welchem Anteil erkannter Zahlungen eine Aufteilung ueberhaupt etwas
+    # aussagt. Darunter waere sie eine Hochrechnung aus einer Handvoll Faelle.
+    ANTEIL_AB_ERKANNT = 0.5
+
     def as_dict(self) -> dict:
-        gesamt = self.bar_anzahl + self.karte_anzahl
+        erkannt = self.bar_anzahl + self.karte_anzahl
+        gesamt = erkannt + self.unbekannt_anzahl
+
+        # Die Aufteilung nur nennen, wenn der groessere Teil auch erkannt wurde
+        # (F-037).
+        #
+        # Sie wurde vorher ueber die ERKANNTEN Zahlungen gerechnet. Bei Imst
+        # sind das 49 von 951 - die restlichen 902 lassen sich keiner Zahlungsart
+        # zuordnen, weil es dort kein Kartenprotokoll gibt und die Muenzereignisse
+        # nicht bis zu jedem Verkauf zurueckreichen. Herausgekommen waere
+        # "100 % bar", obwohl bei 95 Prozent der Verkaeufe niemand weiss, wie
+        # gezahlt wurde. Lieber keine Aufteilung als eine erfundene.
+        aussagekraeftig = gesamt > 0 and (erkannt / gesamt) >= self.ANTEIL_AB_ERKANNT
+
         return {
             "bar_anzahl": self.bar_anzahl,
             "bar_cent": self.bar_cent,
             "karte_anzahl": self.karte_anzahl,
             "karte_cent": self.karte_cent,
             "unbekannt_anzahl": self.unbekannt_anzahl,
-            "bar_anteil": round(self.bar_anzahl / gesamt, 3) if gesamt else None,
-            "karte_anteil": round(self.karte_anzahl / gesamt, 3) if gesamt else None,
+            "erkannt_anteil": round(erkannt / gesamt, 3) if gesamt else None,
+            "bar_anteil": round(self.bar_anzahl / erkannt, 3) if aussagekraeftig else None,
+            "karte_anteil": round(self.karte_anzahl / erkannt, 3) if aussagekraeftig else None,
             "auffaellig": [b.as_dict() for b in self.auffaellig],
             "letzte": [b.as_dict() for b in self.letzte],
         }
