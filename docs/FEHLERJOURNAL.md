@@ -28,6 +28,84 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-039 — Ein Ausfalltag wird als Umsatz des Folgetags verbucht
+Status:     offen (Ursache belegt, Behebung als SQL vorbereitet, 17.08.2026)
+Gesehen:    17.08.2026 ~09:30. Der Betreiber meldete: „Umsatz heute 860 € und
+            letzte Datenquelle vor 1 Minute, kann doch nicht sein" — während
+            das Dashboard denselben Automaten als seit 23 Stunden still führte.
+Beleg:      `park_photo_sales_daily` für `imster-bergbahnen`:
+            17.08. = 172 verkaufte Fotos (× 5,00 € = 860,00 €), geschrieben
+            09:10:08. Gleichzeitig 16.08. = 172, geschrieben 09:20:00.
+            Dieselben 172 Fotos, zweimal gezählt, auf zwei Tagen.
+            Gegenprobe an den Rohdaten: alle 172 Fotos wurden am 17.08.
+            zwischen 08:51 und 09:10 **hochgeladen**, aber am 16.08. zwischen
+            09:34 und 17:50 **aufgenommen**. Am 17.08. war zu dem Zeitpunkt
+            noch kein einziges Foto entstanden.
+Ursache:    Eine Kette aus vier Teilen, von denen jeder für sich harmlos aussieht:
+
+            1. `handle_new_storage_object` legt die Fotozeile an und setzt
+               `captured_at := NEW.created_at` — das ist die Entstehungszeit des
+               **Speicherobjekts**, also der Zeitpunkt des Hochladens, nicht der
+               der Aufnahme.
+            2. `rollup_kiosk_photo_sale` feuert AFTER INSERT, also sofort. Es
+               will das Geschäftsdatum aus `source_time_code` lesen und prüft
+               dafür nur `^[0-9]{8}$`. `parse_source_time_code` liefert aus dem
+               Pfad `processed/imster-bergbahnen/2026-08-16/2633176874402023.jpg`
+               aber **`17687440`** — acht Ziffern aus dem 16-stelligen Codenamen,
+               kein Datum. Der Test greift, `to_date('17687440','DDMMYYYY')`
+               wirft „date/time field value out of range", der `exception`-Block
+               setzt still auf `null`, und es bleibt der Rückfall auf
+               `captured_at` — die Hochladezeit aus Punkt 1.
+            3. Erst danach setzt `liftpic-ingest-commit` `captured_at` und
+               `source_time_code` auf die richtigen Werte (16.08., `16082026`).
+               Der Auslöser hat da längst gezählt und läuft nie wieder.
+            4. `resync_recent_photo_sales` rechnet **richtig** — es hat die
+               strenge Datumsprüfung und sieht die inzwischen korrigierten Werte.
+               Es schreibt den 16.08. sauber. Aber es korrigiert den falschen
+               17.08. nicht, weil es
+               `photos_sold_count = greatest(alt, neu)` verwendet: eine einmal zu
+               hoch eingetragene Zahl kann **nie wieder sinken**.
+
+            Solange Aufnahme- und Hochladetag derselbe sind, fällt nichts davon
+            auf — die falsche und die richtige Rechnung ergeben dieselbe Zahl.
+            Erst der 23-Stunden-Ausfall hat die beiden Tage auseinandergezogen.
+Folge:      Kein Geld verloren und kein Foto verloren — die Pufferung hat
+            gehalten, alle 172 Aufnahmen kamen an. Falsch ist nur die
+            **Zuordnung**: ein Betriebstag erscheint doppelt, der Ausfalltag
+            sieht normal aus, der Folgetag beginnt mit einem Umsatz, den es nicht
+            gab. Wer die Tageszahlen für Abrechnung oder Vergleich nutzt,
+            rechnet mit einer erfundenen Zahl. Punkt 4 macht es dauerhaft.
+Behebung:   Vorbereitet in `docs/sql/F-039-verkaufsdatum.sql`, drei Teile:
+            strenge Datumsprüfung im Auslöser (dieselbe wie im Resync) und
+            Bevorzugung des Datumssegments aus dem Speicherpfad · `greatest`
+            im Resync durch Zuweisung ersetzen, damit sich Zahlen selbst
+            korrigieren können · einmaliges Aufräumen der Geisterzeilen.
+            **Nicht vom Agenten ausgeführt** — gehört in den SQL-Editor.
+Wiederkehr: —
+
+## F-038 — Der Wachhund beendet sich in eine Lücke hinein
+Status:     behoben (`_darf_sich_beenden`, v0.2.1)
+Gesehen:    16.08.2026 auf dem Testrechner
+Beleg:      Nach einem Netzverlust um 03:44 war der Agent sieben Stunden später
+            immer noch tot.
+Ursache:    Der Wachhund beendet den Prozess in der Annahme, ein Autostart fange
+            ihn wieder auf. Auf dem Testrechner gab es keinen. Die Annahme war
+            nirgends geprüft.
+Behebung:   `_darf_sich_beenden()` fragt den Aufgabenplaner, **bevor** es sich
+            beendet. Ohne Autostart bleibt der Prozess am Leben.
+Wiederkehr: —
+
+## F-037 — Bargeldanteil aus zu wenigen Daten hochgerechnet
+Status:     behoben (`ANTEIL_AB_ERKANNT`, v0.2.1)
+Gesehen:    16.08.2026, Imst
+Beleg:      Von 951 Verkäufen waren 49 als bar erkannt und 902 unbekannt.
+            Daraus wurde ein Balken „100 % Karte" gebaut.
+Ursache:    Der Anteil wurde aus den erkannten Fällen gebildet, ohne zu prüfen,
+            ob die erkannten Fälle überhaupt aussagekräftig sind.
+Behebung:   Unter 50 % Erkennungsrate liefert `bar_anteil` jetzt `None`, und die
+            Anzeige lässt den Balken weg statt zu raten.
+Wiederkehr: —
+
 ## F-036 — `preflight` meldet die falsche Sitzung
 Status:     offen
 Gesehen:    16.08.2026 beim Imst-Rollout

@@ -12,6 +12,14 @@ zeigt, was gebaut wurde und was belegt ist.
 
 ## Dringend — betrifft laufende Anlagen
 
+### 0. F-039: SQL ausführen — ein Ausfalltag wird doppelt verbucht
+**Fertig vorbereitet in `docs/sql/F-039-verkaufsdatum.sql`, muss nur noch in den
+Supabase-SQL-Editor.** Nach dem 23-Stunden-Ausfall am 16./17.08. wurden Imsts
+172 Fotos auf beiden Tagen gezählt — der 17.08. begann mit 860 € Umsatz, obwohl
+noch kein Foto entstanden war. Kein Geld und kein Foto verloren, nur falsch
+zugeordnet. Solange Aufnahme- und Hochladetag gleich sind, fällt es nicht auf;
+jeder weitere Ausfall erzeugt es erneut. Ursache und Belege: F-039 im Journal.
+
 ### 1. Imst: Münzprüfer setzt sich wiederholt zurück
 Drei Meldungen `CoinChangerError: Coin changer/validator reset` in drei
 Stunden (16.08. 01:13, 02:04, 02:05), nachts, ohne Gäste. Das ist ein
@@ -22,6 +30,16 @@ unsichtbar. Prüfen, ob der Prüfer tagsüber Geld annimmt.
 `10.08.2026 16:58` — eingeworfen 10,00 €, erwartet 5,00 € zurück,
 ausgezahlt 1,00 €. Vom Automaten als auffällig gemeldet. Einzelfall in
 sieben Tagen, aber der Fall, für den die Wechselgeldkontrolle gebaut wurde.
+
+**Achtung, es sieht nach mehr aus, als es ist:** dieselbe Meldung steht
+inzwischen viermal im Verlauf (16.08. 01:40, 01:45, 08:27, 17.08. 08:52). Alle
+vier tragen im Detail denselben Verkauf `2026-08-10T16:58`. Es ist **ein**
+Vorfall, viermal gemeldet — der Wechselgeld-Prüfer setzt `occurred_at` auf den
+Zeitpunkt der Erkennung statt auf den des Verkaufs und erkennt beim erneuten
+Einlesen nicht, dass er den Fall schon gemeldet hat. Jeder Neustart meldet ihn
+neu. Zu beheben: stabiler Schlüssel je Verkauf, und `occurred_at` = Verkaufszeit.
+Nebenbei ein brauchbares Nebenprodukt — die vier Zeitpunkte zeigen, wann der
+Agent neu eingelesen hat.
 
 ### 3. F-036: `preflight` meldet die falsche Sitzung
 Sagt „Benutzersitzung", während der Agent in Sitzung 0 läuft — es misst die
