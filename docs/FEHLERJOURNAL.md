@@ -28,6 +28,53 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-042 — „Dashboard lädt…" konnte für immer stehen bleiben
+Status:     behoben (dashboard2 `24e4d6d`, 17.08.2026)
+Gesehen:    17.08.2026, nachdem F-041 behoben war und das Problem blieb
+Beleg:      Chrome-Konsole: **kein einziger roter Fehler**, kein fehlgeschlagenes
+            Nachladen. Nur zwei Warnungen „Multiple GoTrueClient instances
+            detected … under the same storage key". Netzwerk-Reiter:
+            `DOMContentLoaded: 264 ms`, `Load: 312 ms` — aber `Finish: 17,52 s`.
+            Im Elemente-Reiter hing die Seite im Spinner von
+            `DashboardLayout`, also bei `loading === true` aus dem
+            Anmeldekontext.
+Ursache:    **Zwei Dinge, die nichts miteinander zu tun haben.**
+
+            **(a) Der Ladezustand hatte keinen garantierten Ausgang.** In
+            `AuthContext` führte *jeder* Weg zu `loading: false` durch
+            ungesicherte Netzwerkaufrufe — `getSession`, dann `getUser`, dann
+            zwei Profilabfragen, und erst ganz am Ende stand `loading: false`.
+            Kein `catch`, kein Zeitlimit, kein Notausgang. Blieb **eine
+            einzige** dieser Anfragen hängen, wurde die letzte Zeile nie
+            erreicht und der Spinner blieb für immer stehen. Bei 17,5 Sekunden
+            offener Anfragen genügte das.
+
+            Verschärfend: `validateSession` behandelte „keine Antwort" wie
+            „Sitzung ungültig" und meldete ab. Eine langsame Leitung hat also
+            Leute hinausgeworfen.
+
+            **(b) Zwei Anmeldeverwaltungen auf demselben Speicherschlüssel.**
+            Es gibt drei `createClient`-Aufrufe; `externalSupabase`
+            (`lib/supabase.ts`) und `supabaseBrowser`
+            (`staff/lib/supabase.ts`) zeigen auf **dasselbe** Projekt
+            `kvpcwlcfgmsmarjtwpsx` mit demselben Schlüssel. Beide legten eine
+            Sitzungsverwaltung unter `sb-kvpcwlcfgmsmarjtwpsx-auth-token` an,
+            beide erneuerten Token, beide schrieben in denselben Speicher —
+            die Bauart des „man ist plötzlich abgemeldet"-Fehlers.
+Behebung:   `mitZeitlimit()` begrenzt jede Anmelde-Anfrage auf 8 s ·
+            `loadProfile` bekommt `try/catch/finally`, und das `finally` setzt
+            `loading: false` — die Zeile, deren Fehlen alles verursacht hat ·
+            eine **Notbremse** beendet den Ladezustand nach spätestens 12 s,
+            egal was passiert · `validateSession` meldet bei Zeitüberschreitung
+            nicht mehr ab · `externalSupabase` bekommt
+            `persistSession: false` und hält damit gar keine Sitzung mehr.
+Lehre:      Ich hatte mit F-041 eine plausible Ursache gefunden, sie behoben —
+            und das Problem war nicht weg. Plausibel ist nicht dasselbe wie
+            belegt. Erst die Konsole des Betreibers hat gezeigt, dass es gar
+            keinen Ladefehler gab. **Die Bildschirmfotos hätten vor der
+            Behebung eingeholt werden müssen, nicht danach.**
+Wiederkehr: —
+
 ## F-041 — Weiße Seite nach einem Deploy, „beim zweiten Laden geht es nicht"
 Status:     behoben (dashboard2 `b37451f`, 17.08.2026)
 Gesehen:    17.08.2026, direkt nachdem ich das Nachladen eingebaut hatte
@@ -59,6 +106,13 @@ Behebung:   Drei Stellen. `src/lib/seiteNachladen.tsx` fängt den Nachladefehler
             `max-age=0, must-revalidate` auf die `index.html`, damit der Browser
             sie gar nicht erst aufhebt. Das Dritte beseitigt die Ursache, die
             ersten beiden fangen den Rest.
+Nachtrag:   **Das war nicht die Ursache des gemeldeten Symptoms.** Der
+            Betreiber meldete „lädt nicht", ich habe daraus einen Ladefehler
+            gemacht, weil er zeitlich passte und ich das Nachladen tags zuvor
+            eingebaut hatte. Die Konsole zeigte danach: kein roter Fehler, kein
+            fehlgeschlagener Abruf. Die wirkliche Ursache steht in F-042.
+            Der hier beschriebene Fehler ist echt und die Behebung richtig —
+            er war nur latent und hätte irgendwann zugeschlagen, nicht jetzt.
 Wiederkehr: —
 
 ## F-040 — 4300 % Conversion nach einem Ausfalltag
