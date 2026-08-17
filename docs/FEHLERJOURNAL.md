@@ -526,7 +526,25 @@ Ursache:    bolt.new hält eine eigene, ältere Kopie des Repos. Der
             Publish-Klick lieferte diese aus **und** schrieb sie nach `main`.
 Behebung:   Inhalt aus `b1d461c` wiederhergestellt, ohne Historie zu
             überschreiben.
-Wiederkehr: —
+Wiederkehr: **17.08.2026 — diesmal andersherum, und zwei Runden gekostet.**
+            Vier Commits (`b0d5cf4`, `5b3598d`, `b37451f`, `24e4d6d`) lagen auf
+            GitHub, aber die Seite lieferte weiter den alten Stand aus: die
+            live abgerufene Datei war 1481 KB groß statt 439 KB, und **keine**
+            der vier Änderungen war darin enthalten.
+            Nicht bolt.new hat überschrieben — bolt.new hat schlicht **nichts
+            geholt**. Der Publish kommt aus seiner eigenen Kopie, und die war
+            vom Vortag. Die Kopplung geht nur in eine Richtung, und zwar in die
+            falsche.
+            Verschärfend auf meiner Seite: Ich habe zwei Reparaturen gebaut,
+            gepusht und als erledigt gemeldet, **ohne zu prüfen, ob sie beim
+            Nutzer ankommen**. Der Betreiber hat zweimal „geht immer noch
+            nicht" gemeldet, bevor ich die ausgelieferte Datei überhaupt
+            angesehen habe. Das war der erste Handgriff, nicht der letzte.
+            **Neue Regel:** Nach jedem Frontend-Push wird die live
+            ausgelieferte Datei auf eine Zeichenkette geprüft, die nur in der
+            neuen Fassung vorkommt. Erst dann gilt etwas als ausgeliefert.
+            Sicherungsmarke `dash-stand-2026-08-17` zeigt auf `24e4d6d`, falls
+            ein Publish `main` doch wieder zurückdreht.
             **Achtung:** Der Auslöser besteht fort. Vor jedem Publish in
             bolt.new muss dort der GitHub-Stand geholt werden.
 
