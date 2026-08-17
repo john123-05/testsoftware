@@ -12,6 +12,17 @@ zeigt, was gebaut wurde und was belegt ist.
 
 ## Dringend — betrifft laufende Anlagen
 
+### 0a. F-040: Aufnahmezahl nach einem Ausfall nachliefern
+Die verkauften Fotos heilen sich nach einem Ausfall von selbst — sie werden aus
+den hochgeladenen Dateien abgeleitet. Die Zahl der **Aufnahmen** nicht: die
+meldet nur der laufende Agent, ein toter Agent zählt nicht, und hinterher ist
+sie weg. Für den 16.08. stehen bei Imst darum 4 Aufnahmen zu 172 Verkäufen.
+Die Anzeige sagt das inzwischen ehrlich, die Zahl fehlt aber weiterhin.
+
+Sinnvoll wäre, dass der Agent die Tageszahlen aus der Statistikdatei
+**nachliefert** statt sie nur live zu melden. Dann heilt sich auch diese Zahl.
+Details und Belege: F-040 im Journal.
+
 ### 0. F-039: SQL ausführen — ein Ausfalltag wird doppelt verbucht
 **Fertig vorbereitet in `docs/sql/F-039-verkaufsdatum.sql`, muss nur noch in den
 Supabase-SQL-Editor.** Nach dem 23-Stunden-Ausfall am 16./17.08. wurden Imsts

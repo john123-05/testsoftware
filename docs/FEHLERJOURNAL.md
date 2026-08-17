@@ -28,6 +28,47 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-040 — 4300 % Conversion nach einem Ausfalltag
+Status:     Anzeige behoben (dashboard2, 17.08.2026) · Datenlücke bleibt offen
+Gesehen:    17.08.2026, Betreiber beim Blick auf den 16.08.
+Beleg:      Kacheln für So. 16.08.: „Gesamtfotos 4", „Gekauft 172",
+            „Verfügbar 0", „Conversion 4300,0 %". Daneben der Kreis
+            „von 4 Fahrten" bei 172 verkauften Fotos. Der Vortag 15.08. steht
+            daneben völlig normal: 1145 Aufnahmen, 142 verkauft, 12,4 %.
+            In `park_photo_ride_daily` für den 16.08.:
+            `photos_taken_count = 4`, `photos_sold_count = 172`,
+            `last_capture_at = 16.08. 10:48` — danach nichts mehr.
+            Zum Vergleich 12.–15.08.: 1083, 1104, 1152, 1145 Aufnahmen.
+Ursache:    Die beiden Zahlen kommen aus verschiedenen Quellen und überleben
+            einen Ausfall unterschiedlich gut:
+
+            * **Verkaufte Fotos** werden aus den hochgeladenen DATEIEN
+              abgeleitet. Die liegen auf dem Automaten und warten. Nach dem
+              Ausfall kamen alle 172 nach — vollständig.
+            * **Aufgenommene Fotos** meldet nur der laufende Agent im
+              Herzschlag. Ein toter Agent zählt nicht, und die Zahl lässt sich
+              hinterher nicht mehr rekonstruieren. Für den 16.08. blieben die
+              4 stehen, die er vor 10:48 noch mitbekommen hat.
+
+            Die Anzeige teilte dann 172 durch 4. Zusätzlich rechnete
+            `Verfügbar` als `max(0, 4 - 172)` und zeigte darum eine glatte 0 —
+            als wäre bekannt, dass nichts übrig war.
+Folge:      Keine Datenverfälschung, aber die Seite behauptete etwas
+            Unmögliches und sah dadurch kaputt aus. Es ist dieselbe Klasse wie
+            AP-3: eine Zahl erfinden, wo „unbekannt" die ehrliche Antwort wäre.
+Behebung:   `src/pages/Photos.tsx` erkennt jetzt `verkauft > aufgenommen` als
+            das, was es ist — eine Lücke, kein Rekord. In diesem Fall:
+            Aufnahmen, Verfügbar und Conversion zeigen „—", der Conversion-Ring
+            und der Verteilungsring entfallen, und ein Hinweis nennt die eine
+            Zahl, die stimmt (die verkauften Fotos). Der Kreis je Attraktion
+            ebenso.
+Offen:      Die 1100-und-etwas Aufnahmen des 16.08. sind in unseren Daten
+            weiterhin verloren. Rekonstruierbar wären sie nur aus dem
+            Rohbildordner am Automaten. Grundsätzlicher: der Agent könnte die
+            Tageszahlen aus der Statistikdatei nachliefern, statt sie nur live
+            zu melden — dann heilt sich auch diese Zahl nach einem Ausfall.
+Wiederkehr: —
+
 ## F-039 — Ein Ausfalltag wird als Umsatz des Folgetags verbucht
 Status:     offen (Ursache belegt, Behebung als SQL vorbereitet, 17.08.2026)
 Gesehen:    17.08.2026 ~09:30. Der Betreiber meldete: „Umsatz heute 860 € und
