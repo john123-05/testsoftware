@@ -28,6 +28,39 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-041 — Weiße Seite nach einem Deploy, „beim zweiten Laden geht es nicht"
+Status:     behoben (dashboard2 `b37451f`, 17.08.2026)
+Gesehen:    17.08.2026, direkt nachdem ich das Nachladen eingebaut hatte
+Beleg:      Betreiber: „jetzt lädt der das dashboard schon wieder nicht … beim
+            ersten Laden geht es, beim zweiten nicht."
+Ursache:    **Ich habe ihn selbst eingebaut**, mit `b0d5cf4` (Aufteilung in 83
+            nachgeladene Dateien). Die Dateien tragen eine Prüfsumme im Namen
+            (`assets/Photos-CskCIJ8c.js`) und werden bei jedem Deploy
+            umbenannt, die alten verschwinden. Der Browser hielt aber die alte
+            `index.html` im Cache — und die zeigt auf die verschwundenen
+            Dateien. Netlify liefert für den fehlenden Pfad die `index.html`
+            aus, also `text/html`, und der Browser verweigert:
+            „Failed to load module script: Expected a JavaScript module script
+            but the server responded with a MIME type of text/html."
+            Es gab **keinen ErrorBoundary**, also beendete React den ganzen
+            Baum: weiße Seite. Hartes Neuladen holte frisches HTML — daher
+            „beim ersten Laden geht es".
+
+            Zwei Deploys am selben Tag (`b0d5cf4`, `5b3598d`) haben genügt.
+Lehre:      Die Aufteilung hat den ersten Ladevorgang von 1485 KB auf 439 KB
+            gebracht — ein echter Gewinn — und dabei eine Lücke geöffnet, die
+            es vorher nicht **geben konnte**: bei einer einzigen Datei gehörte
+            sie immer zu dem HTML, das sie geladen hatte. Wer eine Optimierung
+            einbaut, erbt ihre Fehlerklassen mit.
+Behebung:   Drei Stellen. `src/lib/seiteNachladen.tsx` fängt den Nachladefehler
+            ab und löst **genau einen** echten Neuladevorgang aus, mit Merker in
+            `sessionStorage` gegen die Schleife · `NachladeGrenze` als letztes
+            Auffangnetz mit Knopf statt weißer Seite · `public/_headers` setzt
+            `max-age=0, must-revalidate` auf die `index.html`, damit der Browser
+            sie gar nicht erst aufhebt. Das Dritte beseitigt die Ursache, die
+            ersten beiden fangen den Rest.
+Wiederkehr: —
+
 ## F-040 — 4300 % Conversion nach einem Ausfalltag
 Status:     Anzeige behoben (dashboard2, 17.08.2026) · Datenlücke bleibt offen
 Gesehen:    17.08.2026, Betreiber beim Blick auf den 16.08.
