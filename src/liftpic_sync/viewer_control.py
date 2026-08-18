@@ -57,6 +57,8 @@ log = logging.getLogger(__name__)
 GRACEFUL_SECONDS = 10.0
 # Pause between stopping and starting, so file handles are really released.
 RESTART_PAUSE_SECONDS = 3.0
+# Wie lange nach dem Start auf das Erscheinen gewartet wird.
+START_WARTEN_SEKUNDEN = 20.0
 
 # Woran man im Kameraprotokoll sieht, ob die Kamera wirklich am Programm haengt.
 #
@@ -238,29 +240,62 @@ def _running_pids(exe: Path) -> list[int]:
 
     Matched on the full image path rather than the process name so a similarly
     named program elsewhere on the PC is never touched.
+
+    Wichtig (F-044): Windows verweigert `ExecutablePath`, wenn der Prozess einem
+    anderen Konto gehoert oder hoeher laeuft als wir - das Feld ist dann LEER,
+    nicht falsch. Die alte Fassung filterte solche Prozesse mit
+    `Where-Object { $_.ExecutablePath }` einfach weg und hielt ein laufendes
+    Verkaufsprogramm fuer tot. Der Neustart startete daraufhin eine zweite
+    Instanz, die sich als Einzelinstanz sofort wieder beendete (Exitcode 0),
+    und die Kontrolle fand erneut nichts: "ist nicht wieder hochgekommen",
+    obwohl es die ganze Zeit lief.
+
+    Deshalb wird der Name jetzt mitgelesen und als Rueckfall benutzt - aber nur
+    dort, wo der Pfad nachweislich nicht lesbar ist. Wo ein Pfad da ist, bleibt
+    er allein massgeblich.
     """
     target = os.path.normcase(str(exe.resolve(strict=False)))
+    name_ziel = os.path.normcase(exe.name)
     ausgabe = _ausgabe([
         "powershell.exe",
         "-NoProfile",
         "-NonInteractive",
         "-Command",
         "Get-CimInstance Win32_Process | "
-        "Where-Object { $_.ExecutablePath } | "
-        "ForEach-Object { \"$($_.ProcessId)|$($_.ExecutablePath)\" }",
+        "ForEach-Object { \"$($_.ProcessId)|$($_.Name)|$($_.ExecutablePath)\" }",
     ])
 
     pids: list[int] = []
+    verdeckt: list[int] = []
     for line in ausgabe.splitlines():
-        pid_text, _, path = line.partition("|")
-        if not path:
+        teile = line.split("|", 2)
+        if len(teile) < 2:
             continue
-        if os.path.normcase(path.strip()) == target:
-            try:
-                pids.append(int(pid_text.strip()))
-            except ValueError:
-                continue
-    return pids
+        pid_text, name = teile[0], teile[1]
+        path = teile[2] if len(teile) > 2 else ""
+        try:
+            pid = int(pid_text.strip())
+        except ValueError:
+            continue
+
+        if path.strip():
+            if os.path.normcase(path.strip()) == target:
+                pids.append(pid)
+        elif os.path.normcase(name.strip()) == name_ziel:
+            # Gleicher Dateiname, Pfad nicht lesbar. Wir koennen nicht beweisen,
+            # dass es unser Programm ist - aber der Irrtum in die andere
+            # Richtung ist teurer: er startet eine zweite Instanz und meldet
+            # anschliessend faelschlich einen Fehlschlag.
+            verdeckt.append(pid)
+
+    if verdeckt and not pids:
+        log.warning(
+            "%s: %d Prozess(e) mit passendem Namen, aber ohne lesbaren Pfad "
+            "(%s) - vermutlich laeuft es unter einem anderen Konto oder hoeher "
+            "als wir. Sie werden als laufend gewertet.",
+            exe.name, len(verdeckt), ", ".join(str(p) for p in verdeckt),
+        )
+    return pids + verdeckt
 
 
 def _stop(pids: list[int]) -> None:
@@ -338,10 +373,20 @@ def restart_program(settings: Settings, key: str = "viewer") -> RestartOutcome:
         log.exception("restart %s: could not start %s", programm.key, exe)
         return RestartOutcome(False, f"{programm.name} konnte nicht gestartet werden: {exc}")
 
-    time.sleep(RESTART_PAUSE_SECONDS)
-
+    # Nicht einmal nach drei Sekunden schauen, sondern warten, bis es da ist.
+    # Ein Programm mit Oberflaeche braucht auf einem Automaten regelmaessig
+    # laenger als drei Sekunden; wer nur einmal hinsieht, meldet einen
+    # Fehlschlag, der keiner ist. (F-044)
+    laeuft = False
+    frist = time.time() + START_WARTEN_SEKUNDEN
     try:
-        laeuft = bool(_running_pids(exe))
+        while True:
+            if _running_pids(exe):
+                laeuft = True
+                break
+            if time.time() >= frist:
+                break
+            time.sleep(1.0)
     except Exception:
         # Die Kontrolle ist gescheitert, nicht der Start. Das ehrlich sagen,
         # statt einen Fehlschlag zu behaupten, den es vielleicht nicht gab.
