@@ -19,6 +19,7 @@ from .ride_tracker import RideTracker
 from .scanner import FolderScanner
 from .state import StateStore
 from .statusfiles import read_local_status
+from .camera_settings import kamera_status
 from .payments import read_payments
 from .system_probe import collect_probes
 from .test_photo_upload import NichtZuordenbar, lade_testfoto_hoch
@@ -576,6 +577,10 @@ class LiftpicService:
             # gibt es keine Neustart- und Testfoto-Knoepfe, und das Dashboard
             # sagt auch warum - statt sie wortlos verschwinden zu lassen.
             "session_zero": laeuft_ohne_bildschirm(),
+            # Wie die Kamera eingestellt ist - Belichtung, Verstaerkung, Farbe.
+            # Nur lesend. Ist keine Kamerasoftware eingerichtet, steht hier
+            # `null` und das Dashboard zeigt gar keine Kameraseite.
+            "camera_settings": kamera_status(self.settings),
             # Die Kundennummer, die dieser Automat WIRKLICH in die Dateinamen
             # schreibt - nach `with_viewer_recipe()`, also die des
             # Verkaufsprogramms. Der Server prueft damit, ob sie fuer diesen
