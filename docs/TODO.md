@@ -43,7 +43,7 @@ Sinnvoll wäre, dass der Agent die Tageszahlen aus der Statistikdatei
 **nachliefert** statt sie nur live zu melden. Dann heilt sich auch diese Zahl.
 Details und Belege: F-040 im Journal.
 
-### 0. F-039: SQL ausführen — ein Ausfalltag wird doppelt verbucht
+### 0b. F-039: SQL ausführen — ein Ausfalltag wird doppelt verbucht
 **Fertig vorbereitet in `docs/sql/F-039-verkaufsdatum.sql`, muss nur noch in den
 Supabase-SQL-Editor.** Nach dem 23-Stunden-Ausfall am 16./17.08. wurden Imsts
 172 Fotos auf beiden Tagen gezählt — der 17.08. begann mit 860 € Umsatz, obwohl
