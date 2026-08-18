@@ -28,6 +28,42 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-043 — Der Testfoto-Knopf verschwindet, wenn die Kamera lange still war
+Status:     behoben (dashboard2 `4565f80`, 18.08.2026)
+Gesehen:    18.08.2026, Betreiber: „warum habe ich auf dem Testrechner nicht
+            mehr die Funktion, Bilder auszulösen"
+Beleg:      Der Testrechner meldet nur noch drei Geräte — Münzeinnahmen,
+            Uploader, Verkaufsprogramm. **Keine Kamera.** Gleichzeitig steht
+            `can_test_photo` im Herzschlag auf `true` und `session_zero` auf
+            `false`; der Automat bietet die Funktion also an.
+            Am Rechner: `3gerTis_v70` **läuft** (seit 15.08. 11:32), aber
+            `3gerlog.txt` wurde zuletzt am 15.08. 23:36 geschrieben — vor
+            58,7 Stunden. Nicht weil etwas kaputt ist, sondern weil auf dem
+            Testrechner niemand fährt.
+Ursache:    Zwei Regeln, die einzeln richtig sind und zusammen das Falsche tun.
+            `_inspect_log` verwirft ein Protokoll ab
+            `OPERATIONAL_LOG_DEFUNCT_MINUTES = 2880` (48 Std.) mit dem
+            Kommentar „genuinely dead (rotated away, years old)". Damit fällt
+            das Gerät aus dem Herzschlag. Und der Knopf hing an
+            `e.kind === 'camera' && e.name === 'Kamera-Software' && m.can_test_photo`
+            — ohne Kachel keine Bedingung, ohne Bedingung kein Knopf.
+Folge:      Verkehrt herum: Der Knopf, mit dem man **prüft**, ob die Kamera
+            antwortet, verschwindet ausgerechnet dann, wenn sie lange still
+            war — also genau in der Lage, in der man ihn braucht. Ein Park mit
+            zwei Ruhetagen hat am dritten Morgen keine Prüfmöglichkeit mehr.
+Behebung:   Der Knopf richtet sich jetzt nach `can_test_photo` allein. Fehlt
+            die Kamerakachel, erscheint er eigenständig über der Liste, mit
+            dem Hinweis, dass „seit zwei Tagen nichts gemeldet" nicht
+            „defekt" heißt. Ist die Kachel da, bleibt alles wie bisher.
+            **Nicht geändert:** die 48-Stunden-Grenze. Sie ist für wirklich
+            tote Protokolle richtig. Falsch war, eine *Bedienmöglichkeit*
+            davon abhängig zu machen.
+Verwandt:   Der offene TODO-Punkt „verschwundene Geräte sind nicht von nie
+            dagewesenen zu unterscheiden" — hier hat er zum ersten Mal
+            zugeschlagen, und zwar nicht bei einer Anzeige, sondern bei einer
+            Handlung.
+Wiederkehr: —
+
 ## F-042 — „Dashboard lädt…" konnte für immer stehen bleiben
 Status:     behoben (dashboard2 `24e4d6d`, 17.08.2026)
 Gesehen:    17.08.2026, nachdem F-041 behoben war und das Problem blieb
