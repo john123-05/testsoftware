@@ -12,6 +12,26 @@ zeigt, was gebaut wurde und was belegt ist.
 
 ## Dringend — betrifft laufende Anlagen
 
+### 0. Kein Herzschlag-Verlauf — Ausfallzeiten sind nicht rekonstruierbar
+`machine_status` hat pro Automat **genau eine Zeile**; jeder Herzschlag
+überschreibt den vorherigen. Wir wissen also immer nur, wann der *letzte* war,
+nie den Verlauf.
+
+Am 18.08.2026 fragte der Betreiber, ob die Ausfälle in Imst immer zur selben
+Uhrzeit passieren. Beantworten liess sich das nur durch Rückrechnen aus
+Foto-Uploads und Störmeldungen — und Foto-Uploads sind dafür untauglich, weil
+sie nur beim Verkauf entstehen: eine halbe Stunde ohne Käufer sieht aus wie ein
+Ausfall.
+
+Was fehlt, ist eine schmale Verlaufstabelle, in die jeder Herzschlag eine Zeile
+schreibt (Zeitpunkt, Warteschlange, Version). Bei 30-Sekunden-Takt sind das
+rund 2 900 Zeilen je Automat und Tag — mit einer Aufbewahrung von 30 Tagen
+unkritisch. Danach beantwortet **eine** Abfrage, wann eine Anlage still wurde,
+wie lange, und ob es ein Muster gibt.
+
+Bis dahin: `scripts/ausfall_spurensuche.ps1` am Automaten ausführen, solange
+die Spur noch frisch ist.
+
 ### 0a. F-040: Aufnahmezahl nach einem Ausfall nachliefern
 Die verkauften Fotos heilen sich nach einem Ausfall von selbst — sie werden aus
 den hochgeladenen Dateien abgeleitet. Die Zahl der **Aufnahmen** nicht: die
