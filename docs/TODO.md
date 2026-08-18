@@ -127,6 +127,44 @@ Schaltbar sind: `viewer_restart_enabled`, `viewer_exe`, `camera_exe`,
 **Wichtig:** ein fehlender Eintrag lässt den Wert am Automaten stehen — er
 schaltet ihn *nicht* ab. Abschalten geht mit leerem String oder `false`.
 
+### Kameraeinstellungen aus dem Dashboard (Vorschlag, noch nicht gebaut)
+Die Kamera ist eine **DFK 33GX545** von The Imaging Source, GigE, 4096×3000 bei
+4,75 Bildern/s. Ihre Einstellungen stehen vollständig in
+`C:\liftpicGerTis	rigger.xml`, die 3GerTis beim Start liest
+(`xml_file=trigger.xml` in `3gertis.ini`).
+
+Einstellbar sind unter anderem — Ist-Werte vom Testrechner:
+
+| Eigenschaft | aktuell |
+|---|---|
+| Belichtung | **automatisch**, Sollwert 88, zuletzt 1,48 ms |
+| Verstärkung | **automatisch**, höchstens 48 |
+| Sättigung | 120,3 (angehoben) |
+| Gamma | 0,81 |
+| Helligkeit / Kontrast / Schärfe / Farbton | je 0 |
+| Weißabgleich, Farbmatrix, Rauschminderung, Tone Mapping, Spitzlichter | vorhanden |
+
+**Technisch ist alles da:** Werte aus der Ferne schicken kann `config_to_env`
+schon, Dateien am Automaten schreiben samt Sicherung kann der Asset-Abgleich
+schon, die Kamerasoftware neu starten kann `camera_exe` schon, und seit F-043
+gibt es den Testfoto-Knopf. Damit schließt sich der Kreis: **ändern → Kamera
+neu starten → Testfoto → Ergebnis im Dashboard ansehen.**
+
+Was vorher geklärt sein muss, weil es Umsatz kostet, wenn es schiefgeht:
+- `trigger.xml` ist GUID-basiert. Es dürfen **einzelne Werte** geändert werden,
+  die Datei darf nie neu geschrieben werden.
+- Vor jeder Änderung eine Sicherung, und ein „zurück zum vorherigen Stand" mit
+  einem Klick. Ohne das nicht ausliefern.
+- Grenzen erzwingen. Eine falsch gesetzte Belichtung macht einen ganzen
+  Betriebstag unbrauchbar, und das merkt niemand sofort.
+- Belichtung und Verstärkung stehen auf **automatisch**. Auf Hand umzustellen
+  ist eine eigene Entscheidung, keine Nebenwirkung eines Schiebereglers.
+
+**Achtung:** `C:\liftpic\TIScapture\config.ini` nennt dieselbe Seriennummer
+`42320366`. Es gibt also zwei Programme für **eine** Kamera, und nur eines kann
+sie gleichzeitig haben. Vor dem Bau klären, welches am jeweiligen Automaten
+wirklich läuft.
+
 ### Super-Admin-Oberfläche für die Merkmalsschalter
 Die Mechanik steht, die Bedienoberfläche fehlt. Bewusst nicht gebaut, weil
 der Super-Admin gerade visuell überarbeitet wird. Es geht um Schalter pro
