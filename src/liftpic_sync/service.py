@@ -26,6 +26,7 @@ from .test_photo_upload import NichtZuordenbar, lade_testfoto_hoch
 from .supabase_client import SupabaseIngestClient
 from .uploader import UploadWorker
 from .viewer_control import (
+    _running_pids as _laufende_pids,
     find_program, in_night_window, laeuft_ohne_bildschirm, restart_program,
     restartable_programs, stop_program, trigger_test_photo,
 )
@@ -66,6 +67,20 @@ PROZESS_HILFT_NICHT = re.compile(
     r"(device lost|geraet verloren|gerät verloren)",
     re.IGNORECASE,
 )
+
+
+def _zeit_aus_iso(roh: object) -> float | None:
+    """Ein ISO-Zeitstempel vom Server als Unix-Zeit, oder None."""
+    if not isinstance(roh, str) or not roh.strip():
+        return None
+    try:
+        # Supabase liefert ISO mit 'Z'; fromisoformat kennt das erst ab 3.11.
+        zeit = datetime.fromisoformat(roh.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if zeit.tzinfo is None:
+        return None
+    return zeit.timestamp()
 
 
 def _auftragsalter_minuten(request: dict) -> float | None:
@@ -180,6 +195,11 @@ class LiftpicService:
         self._wachhund_ohne_netz_gemeldet = False
         self._last_asset_sync = 0.0
         self._last_config_refresh = 0.0
+        # Bis wann das Verkaufsprogramm ausbleiben soll, und ob wir das
+        # schon gemeldet haben. Siehe _pause_durchsetzen.
+        self._pause_bis: float | None = None
+        self._pause_ziel: str = "viewer"
+        self._pause_gemeldet = False
         self._last_payment_scan = 0.0
         self._payment_cache: dict = {}
         # Schon gemeldete Auffaelligkeiten, damit dieselbe Abweichung nicht bei
@@ -244,6 +264,10 @@ class LiftpicService:
                 self._letzte_besitzmeldung = jetzt
                 self.store.besitz_auffrischen(eigene_pid)
             self._refresh_config_if_due()
+            try:
+                self._pause_durchsetzen()
+            except Exception:
+                log.exception("pause enforcement failed")
             try:
                 self.run_once()
             except Exception:
@@ -436,6 +460,11 @@ class LiftpicService:
         # Vor der .env-Abgleichung, denn die kehrt weiter unten frueh um, wenn
         # sich nichts geaendert hat - ein Kameraauftrag wuerde dann nie ankommen.
         try:
+            self._pause_aus_konfiguration(config)
+        except Exception as exc:
+            log.warning("pause setting failed: %s", exc)
+
+        try:
             self._kamera_auftrag_pruefen(config)
         except Exception as exc:  # darf die Konfiguration nie kosten
             log.warning("camera order failed: %s", exc)
@@ -452,6 +481,96 @@ class LiftpicService:
         write_env_values(self.env_path, desired)
         new_settings = Settings.from_env_file(self.env_path)
         self._apply_settings(new_settings)
+
+    # Wie lange eine Pause laengstens gilt, auch wenn niemand sie aufhebt.
+    #
+    # Ohne Deckel waere die groesste Gefahr nicht der Wachhund, sondern das
+    # Vergessen: jemand haelt abends das Verkaufsprogramm an, geht nach Hause,
+    # und der Park verkauft am naechsten Tag nichts. Zwoelf Stunden reichen fuer
+    # jede Wartung und enden vor dem naechsten Betriebstag.
+    PAUSE_MAX_STUNDEN = 12
+
+    def _pause_aus_konfiguration(self, config: dict) -> None:
+        """Merken, ob und wie lange ein Programm ausbleiben soll."""
+        einstellungen = config.get("settings")
+        pause = einstellungen.get("viewer_pause") if isinstance(einstellungen, dict) else None
+
+        if not isinstance(pause, dict):
+            if self._pause_bis is not None:
+                log.warning("pause lifted by dashboard")
+                self.store.record_health_event(
+                    kind="restart", severity="info",
+                    summary="Pause aufgehoben - das Programm darf wieder laufen",
+                    detail="Vom Dashboard freigegeben",
+                )
+            self._pause_bis = None
+            self._pause_gemeldet = False
+            return
+
+        gesetzt = _zeit_aus_iso(pause.get("gesetzt_am"))
+        if gesetzt is None:
+            return
+        deckel = gesetzt + self.PAUSE_MAX_STUNDEN * 3600
+        self._pause_ziel = str(pause.get("ziel") or "viewer")
+        if self._pause_bis != deckel:
+            self._pause_bis = deckel
+            self._pause_gemeldet = False
+
+    def _pause_durchsetzen(self) -> None:
+        """Ein angehaltenes Programm angehalten lassen.
+
+        Warum es das braucht: `Beenden` haelt einmal an. Laeuft am Automaten ein
+        Wachhund - `PhotoViewerWatchdog.exe` liegt dort - startet der das
+        Programm binnen Sekunden wieder, und das Anhalten war wirkungslos. Wir
+        koennen den Wachhund nicht abschalten, also halten wir dagegen, solange
+        die Pause gilt.
+
+        Das ist bewusst ein Aufpasser gegen einen Aufpasser, und deshalb streng
+        befristet: nach PAUSE_MAX_STUNDEN endet sie von selbst. Ein vergessenes
+        `Beenden` darf keinen Betriebstag kosten.
+        """
+        if self._pause_bis is None:
+            return
+
+        if time.time() > self._pause_bis:
+            log.warning("pause expired after %d hours - releasing", self.PAUSE_MAX_STUNDEN)
+            self.store.record_health_event(
+                kind="restart", severity="warning",
+                summary=f"Pause nach {self.PAUSE_MAX_STUNDEN} Stunden von selbst beendet",
+                detail=(
+                    "Das Programm darf wieder laufen. Eine Pause endet immer von "
+                    "selbst, damit ein vergessenes Beenden keinen Betriebstag kostet."
+                ),
+            )
+            self._pause_bis = None
+            self._pause_gemeldet = False
+            return
+
+        programm = find_program(self.settings, self._pause_ziel)
+        if programm is None:
+            return
+        try:
+            laeuft = bool(_laufende_pids(programm.exe))
+        except Exception:
+            return
+        if not laeuft:
+            return
+
+        # Es ist zurueckgekommen. Wieder anhalten - und genau einmal melden,
+        # sonst steht der Verlauf im Sekundentakt voll.
+        ergebnis = stop_program(self.settings, self._pause_ziel)
+        if not self._pause_gemeldet:
+            self._pause_gemeldet = True
+            self.store.record_health_event(
+                kind="restart",
+                severity="info" if ergebnis.performed else "warning",
+                summary=f"{programm.name} wurde neu gestartet und ist angehalten worden",
+                detail=(
+                    "Etwas am Automaten startet das Programm nach - vermutlich "
+                    "ein Wachhund. Solange die Pause gilt, wird es wieder "
+                    f"angehalten. Ergebnis: {ergebnis.reason}"
+                ),
+            )
 
     def _kamera_auftrag_pruefen(self, config: dict) -> None:
         """Einen vom Dashboard gesetzten Kameraauftrag ausfuehren.

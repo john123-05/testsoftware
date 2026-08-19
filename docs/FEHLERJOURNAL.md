@@ -64,6 +64,49 @@ Verwandt:   Der offene TODO-Punkt „verschwundene Geräte sind nicht von nie
             Handlung.
 Wiederkehr: —
 
+## F-047 — "Beenden" startete neu, weil der Agent alten Code fuhr
+Status:     behoben (Agent neu gestartet, 19.08.2026)
+Gesehen:    19.08.2026, Betreiber: „ich habe das beendet, und er hat es
+            automatisch wieder gestartet"
+Beleg:      Der Verlauf zeigt es wörtlich:
+            `summary: "Verkaufsprogramm neu gestartet"` bei
+            `detail: "Vom Dashboard beauftragt (stop)"`.
+            Der Auftrag kam also korrekt mit `stop` an — der Agent hat trotzdem
+            neu gestartet. Agent gestartet 18.08. 13:14, `viewer_control.py`
+            und `service.py` geändert am 19.08. 14:11 und 14:12.
+Ursache:    **Nicht der Watchdog, sondern ich.** Python lädt Module beim Start.
+            Der laufende Agent kannte `stop_program` schlicht nicht und fiel auf
+            den einzigen Zweig zurück, den er hatte: neu starten.
+            Dieselbe Klasse wie F-013: gebaut, gepusht, als fertig gemeldet —
+            und nie geprüft, ob der Code beim Nutzer überhaupt läuft.
+Lehre:      **Eine Agentenänderung ist erst wirksam, wenn der Agent neu
+            gestartet wurde.** Beim Dashboard beantwortet `/version.txt` diese
+            Frage; beim Agenten tut es die Startzeit des Prozesses gegen die
+            Änderungszeit der Datei. Beides gehört geprüft, bevor etwas als
+            erledigt gilt.
+Nebenbefund: `PhotoViewerWatchdog.exe` liegt im Verkaufsprogramm-Ordner, hat
+            aber zuletzt am 16.03.2026 geschrieben — er lief nicht. Der
+            Autostart-Ordner ist leer. Es gab also wirklich niemanden ausser
+            uns selbst.
+Wiederkehr: —
+
+## F-048 — Ein Test faellt einmal und ist danach nicht reproduzierbar
+Status:     beobachtet
+Gesehen:    19.08.2026, `test_scan_keeps_same_capture_id_on_different_days`
+            fiel in einem Gesamtlauf, lief allein und in zwei weiteren
+            Gesamtläufen durch.
+Beleg:      `tests/test_scanner.py:78: AssertionError`, danach dreimal grün.
+Ursache:    Nicht geklärt. Der Test benutzt feste Daten im Dateinamen, hängt
+            also nicht am heutigen Tag. Verdacht: der Scanner überspringt
+            Dateien, die er für noch nicht fertig geschrieben hält, und unter
+            Last (parallel lief ein Frontend-Build) kann diese Einschätzung
+            kippen.
+Warum es hier steht: Ein Test, der ohne Codeänderung mal fällt und mal nicht,
+            beschädigt das Vertrauen in die ganze Suite. Beim nächsten Mal wird
+            man ihn wegklicken — und dann fällt der eine echte Fehler nicht auf.
+            Deshalb notiert statt weggewischt.
+Wiederkehr: —
+
 ## F-046 — Bild-URL selbst signiert, obwohl der Bucket öffentlich ist
 Status:     behoben (dashboard2, 19.08.2026)
 Gesehen:    19.08.2026, „wenn ich auf Bild neu laden gehe, passiert nichts"
