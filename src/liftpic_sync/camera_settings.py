@@ -14,10 +14,12 @@ Eigenschaft ist eine GUID, der Name steht als Attribut daneben.
       </element>
     </item>
 
-Dieses Modul liest nur - es schreibt nichts. Das ist Absicht: eine falsch
-gesetzte Belichtung macht einen ganzen Betriebstag unbrauchbar, und das merkt
-niemand sofort. Erst sehen, was eingestellt ist, dann darueber reden, ob man
-es aus der Ferne aendern darf.
+Gelesen wird alles Interessante, geschrieben nur eine bewusst kleine Auswahl
+(siehe SCHREIBBAR). Eine falsch gesetzte Belichtung macht einen ganzen
+Betriebstag unbrauchbar und faellt niemandem sofort auf - deshalb gilt hier:
+jeder Schreibvorgang legt vorher eine Sicherung an, jeder Wert wird in feste
+Grenzen gezwungen, und geschrieben wird immer nur das EINE Attribut, nie die
+ganze Datei neu.
 """
 
 from __future__ import annotations
@@ -173,6 +175,18 @@ def lies_kamera(xml_datei: Path, programm: str | None = None) -> Kamera:
 _zwischenspeicher: dict[str, tuple[float, dict]] = {}
 
 
+def xml_pfad_fuer(settings) -> Path | None:
+    """Welche Datei liest die Kamerasoftware dieses Automaten?"""
+    exe = getattr(settings, "camera_exe", None)
+    if exe is None:
+        return None
+    ordner = Path(exe).parent
+    xml_datei = _xml_pfad(ordner / "3gertis.ini")
+    if xml_datei is None or not xml_datei.exists():
+        xml_datei = ordner / "trigger.xml"
+    return xml_datei
+
+
 def kamera_status(settings) -> dict | None:
     """Fuer den Herzschlag: was steuert die Kamera, und wie ist sie eingestellt?
 
@@ -208,3 +222,172 @@ def kamera_status(settings) -> dict | None:
     except Exception as exc:  # darf den Herzschlag nie kosten
         log.warning("camera settings failed: %s", exc)
         return {"programm": programm, "fehler": str(exc), "werte": {}}
+
+
+# ---------------------------------------------------------------------------
+# Schreiben
+# ---------------------------------------------------------------------------
+
+# Was aus der Ferne veraendert werden darf, und in welchen Grenzen.
+#
+# Die Grenzen sind bewusst enger gefasst als das, was die Kamera technisch
+# zulaesst. Wir kennen ihre echten Bereiche nicht - `trigger.xml` speichert nur
+# Werte, keine Bereiche - und ein Wert, den die Kamera nicht annimmt, faellt
+# erst beim naechsten Gast auf. Lieber ein Regler, der zu frueh anschlaegt, als
+# ein Betriebstag mit unbrauchbaren Bildern.
+#
+# (Eigenschaft, Element) -> (kleinster, groesster Wert)
+SCHREIBBAR: dict[tuple[str, str], tuple[float, float]] = {
+    ("Brightness", "Value"): (-64.0, 64.0),
+    ("Contrast", "Value"): (-64.0, 64.0),
+    ("Saturation", "Value"): (0.0, 200.0),
+    ("Hue", "Value"): (-180.0, 180.0),
+    ("Gamma", "Value"): (0.1, 3.0),
+    ("Sharpness", "Value"): (0.0, 100.0),
+    ("Denoise", "Value"): (0.0, 100.0),
+    ("Exposure", "Value"): (0.00002, 2.0),          # Sekunden
+    ("Exposure", "Auto"): (0.0, 1.0),
+    ("Exposure", "Auto Reference"): (0.0, 255.0),
+    ("Gain", "Auto"): (0.0, 1.0),
+    ("Gain", "Auto Max Value"): (0.0, 96.0),
+    ("WhiteBalance", "Auto"): (0.0, 1.0),
+    ("Tone Mapping", "Enable"): (0.0, 1.0),
+    ("Highlight Reduction", "Enable"): (0.0, 1.0),
+}
+
+
+@dataclass
+class Schreibergebnis:
+    """Was beim Schreiben wirklich passiert ist."""
+
+    geschrieben: dict[str, float] = field(default_factory=dict)
+    abgelehnt: dict[str, str] = field(default_factory=dict)
+    sicherung: str | None = None
+    fehler: str | None = None
+
+    @property
+    def erfolgreich(self) -> bool:
+        return self.fehler is None and bool(self.geschrieben)
+
+    def as_dict(self) -> dict:
+        return {
+            "geschrieben": self.geschrieben,
+            "abgelehnt": self.abgelehnt,
+            "sicherung": self.sicherung,
+            "fehler": self.fehler,
+        }
+
+
+def _als_text(wert: float) -> str:
+    """Wie die Kamera Zahlen schreibt: ganze Zahlen ohne Komma."""
+    if float(wert).is_integer():
+        return str(int(wert))
+    return repr(round(float(wert), 9))
+
+
+def sicherung_anlegen(xml_datei: Path) -> Path:
+    """Vor jeder Aenderung. Der Rueckweg muss existieren, bevor er gebraucht wird."""
+    from datetime import datetime
+
+    stempel = datetime.now().strftime("%Y%m%d-%H%M%S")
+    ziel = xml_datei.with_name(f"{xml_datei.name}.sicherung-{stempel}")
+    ziel.write_bytes(xml_datei.read_bytes())
+    return ziel
+
+
+def schreibe_werte(xml_datei: Path, werte: dict[str, float]) -> Schreibergebnis:
+    """Einzelne Kamerawerte in die XML schreiben.
+
+    `werte` kommt als flache Zuordnung `"Eigenschaft.Element" -> Zahl`, also
+    zum Beispiel `{"Saturation.Value": 130, "Gamma.Value": 0.9}`.
+
+    Geaendert wird ausschliesslich das `value`-Attribut der betroffenen Zeile.
+    Die Datei wird nicht neu erzeugt: sie enthaelt GUIDs, Reihenfolgen und
+    Nachkommastellen, auf die sich die Kamerasoftware verlaesst. Ein
+    "schoener" neu geschriebenes XML waere das erste, was kaputt geht.
+    """
+    ergebnis = Schreibergebnis()
+
+    if not xml_datei.exists():
+        ergebnis.fehler = f"{xml_datei} gibt es nicht"
+        return ergebnis
+
+    # Erst pruefen, dann anfassen. Eine Sicherung fuer einen Auftrag anzulegen,
+    # der ohnehin komplett abgelehnt wird, waere nur Muell im Ordner.
+    geplant: dict[tuple[str, str], float] = {}
+    for schluessel, roh in werte.items():
+        if "." not in schluessel:
+            ergebnis.abgelehnt[schluessel] = "kein gueltiger Name"
+            continue
+        eigenschaft, _, element = schluessel.partition(".")
+        grenzen = SCHREIBBAR.get((eigenschaft, element))
+        if grenzen is None:
+            ergebnis.abgelehnt[schluessel] = "darf aus der Ferne nicht geaendert werden"
+            continue
+        try:
+            zahl = float(roh)
+        except (TypeError, ValueError):
+            ergebnis.abgelehnt[schluessel] = "keine Zahl"
+            continue
+        klein, gross = grenzen
+        if not (klein <= zahl <= gross):
+            ergebnis.abgelehnt[schluessel] = f"ausserhalb von {klein} bis {gross}"
+            continue
+        geplant[(eigenschaft, element)] = zahl
+
+    if not geplant:
+        if not ergebnis.abgelehnt:
+            ergebnis.fehler = "nichts zu schreiben"
+        return ergebnis
+
+    try:
+        baum = ET.parse(xml_datei)
+    except Exception as exc:
+        ergebnis.fehler = f"nicht lesbar: {exc}"
+        return ergebnis
+
+    wurzel = baum.getroot()
+    gefunden: dict[tuple[str, str], object] = {}
+    for item in wurzel.iter("item"):
+        eigenschaft = (item.get("name") or "").strip()
+        for element in item.findall("element"):
+            name = (element.get("name") or "").strip()
+            itf = element.find("itf")
+            if itf is None:
+                continue
+            if (eigenschaft, name) in geplant:
+                gefunden[(eigenschaft, name)] = itf
+
+    for schluessel in geplant:
+        if schluessel not in gefunden:
+            ergebnis.abgelehnt[f"{schluessel[0]}.{schluessel[1]}"] = "in dieser Kamera nicht vorhanden"
+
+    zu_schreiben = {k: v for k, v in geplant.items() if k in gefunden}
+    if not zu_schreiben:
+        ergebnis.fehler = "keiner der Werte kommt in dieser Kamera vor"
+        return ergebnis
+
+    try:
+        ergebnis.sicherung = str(sicherung_anlegen(xml_datei))
+    except Exception as exc:
+        # Ohne Sicherung wird nicht geschrieben. Das ist keine Vorsicht,
+        # das ist die Bedingung.
+        ergebnis.fehler = f"Sicherung nicht moeglich, es wurde nichts geaendert: {exc}"
+        return ergebnis
+
+    for schluessel, zahl in zu_schreiben.items():
+        gefunden[schluessel].set("value", _als_text(zahl))
+        ergebnis.geschrieben[f"{schluessel[0]}.{schluessel[1]}"] = zahl
+
+    try:
+        # Erst daneben schreiben, dann ersetzen. Ein Stromausfall mitten im
+        # Schreiben hinterlaesst sonst eine halbe Datei, und die Kamera
+        # startet beim naechsten Mal gar nicht mehr.
+        vorlaeufig = xml_datei.with_suffix(xml_datei.suffix + ".neu")
+        baum.write(vorlaeufig, encoding="utf-8", xml_declaration=False)
+        vorlaeufig.replace(xml_datei)
+        _zwischenspeicher.clear()
+    except Exception as exc:
+        ergebnis.fehler = f"Schreiben fehlgeschlagen: {exc}"
+        ergebnis.geschrieben.clear()
+    return ergebnis

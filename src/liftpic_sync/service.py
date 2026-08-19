@@ -19,7 +19,7 @@ from .ride_tracker import RideTracker
 from .scanner import FolderScanner
 from .state import StateStore
 from .statusfiles import read_local_status
-from .camera_settings import kamera_status
+from .camera_settings import kamera_status, schreibe_werte, xml_pfad_fuer
 from .payments import read_payments
 from .system_probe import collect_probes
 from .test_photo_upload import NichtZuordenbar, lade_testfoto_hoch
@@ -432,6 +432,14 @@ class LiftpicService:
         config = response.get("config")
         if not isinstance(config, dict):
             return
+
+        # Vor der .env-Abgleichung, denn die kehrt weiter unten frueh um, wenn
+        # sich nichts geaendert hat - ein Kameraauftrag wuerde dann nie ankommen.
+        try:
+            self._kamera_auftrag_pruefen(config)
+        except Exception as exc:  # darf die Konfiguration nie kosten
+            log.warning("camera order failed: %s", exc)
+
         device_token = str(response.get("device_token") or self.settings.device_token)
         desired = config_to_env(config, device_token)
 
@@ -444,6 +452,73 @@ class LiftpicService:
         write_env_values(self.env_path, desired)
         new_settings = Settings.from_env_file(self.env_path)
         self._apply_settings(new_settings)
+
+    def _kamera_auftrag_pruefen(self, config: dict) -> None:
+        """Einen vom Dashboard gesetzten Kameraauftrag ausfuehren.
+
+        Der Auftrag reist im `settings`-Feld des Konfigurationsdatensatzes mit,
+        das der Automat ohnehin bei jeder Auffrischung bekommt. Das ist Absicht:
+        so muss keine der Automaten-Functions angefasst werden, und genau daran
+        ist am 15.08.2026 der Betrieb aller Anlagen gescheitert (F-031).
+
+        Ausgefuehrt wird jeder Auftrag genau einmal - `auftrag_beanspruchen`
+        haelt das in der Zustandsdatenbank fest, sonst wuerde derselbe Auftrag
+        bei jeder Auffrischung neu ausgefuehrt.
+        """
+        einstellungen = config.get("settings")
+        if not isinstance(einstellungen, dict):
+            return
+        auftrag = einstellungen.get("kamera_auftrag")
+        if not isinstance(auftrag, dict):
+            return
+
+        auftrag_id = str(auftrag.get("id") or "").strip()
+        werte = auftrag.get("werte")
+        if not auftrag_id or not isinstance(werte, dict) or not werte:
+            return
+
+        xml_datei = xml_pfad_fuer(self.settings)
+        if xml_datei is None:
+            log.info("camera order '%s' arrived but no camera software is set up here",
+                     auftrag_id)
+            return
+
+        if not self.store.auftrag_beanspruchen(auftrag_id):
+            return
+
+        log.warning("carrying out camera order '%s': %s", auftrag_id, sorted(werte))
+        ergebnis = schreibe_werte(xml_datei, {str(k): v for k, v in werte.items()})
+
+        if ergebnis.fehler:
+            log.error("camera order '%s' failed: %s", auftrag_id, ergebnis.fehler)
+            self.store.record_health_event(
+                kind="camera", severity="error",
+                summary=f"Kameraeinstellung fehlgeschlagen: {ergebnis.fehler}",
+                detail=f"Auftrag {auftrag_id}",
+            )
+            return
+
+        teile = [f"{k}={v}" for k, v in sorted(ergebnis.geschrieben.items())]
+        abgelehnt = [f"{k} ({g})" for k, g in sorted(ergebnis.abgelehnt.items())]
+
+        # Die Kamerasoftware liest die Datei nur beim Start. Ohne Neustart
+        # aendert sich am Bild nichts - das waere die schlimmste Sorte
+        # Rueckmeldung: "hat geklappt", und dann sieht alles aus wie vorher.
+        neustart_text = "ohne Neustart, die Werte greifen erst beim naechsten Start"
+        if auftrag.get("neustart") is not False:
+            ausgang = restart_program(self.settings, "camera")
+            neustart_text = ausgang.reason
+
+        self.store.record_health_event(
+            kind="camera",
+            severity="info" if not abgelehnt else "warning",
+            summary=f"Kamera eingestellt: {', '.join(teile)}",
+            detail=(
+                f"Auftrag {auftrag_id} - {neustart_text}"
+                + (f" - abgelehnt: {', '.join(abgelehnt)}" if abgelehnt else "")
+                + (f" - Sicherung: {ergebnis.sicherung}" if ergebnis.sicherung else "")
+            ),
+        )
 
     def _apply_settings(self, new_settings: Settings) -> None:
         was_shadow = self.settings.shadow_mode
