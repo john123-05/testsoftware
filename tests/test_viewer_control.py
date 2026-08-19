@@ -67,3 +67,68 @@ def test_pfad_schlaegt_rueckfall(monkeypatch):
 def test_kaputte_zeilen_stoeren_nicht(monkeypatch):
     _antwort(["", "unsinn", "abc|PhotoViewerFacebook!.exe|", "777"], monkeypatch)
     assert viewer_control._running_pids(EXE) == []
+
+
+# --- Anhalten -------------------------------------------------------------
+#
+# Anhalten hat die GEGENTEILIGE Erfolgsbedingung zum Neustart: gelungen ist es,
+# wenn das Programm danach weg ist. Deshalb eine eigene Funktion und eigene
+# Tests - in einem gemeinsamen `if neustart:` waere frueher oder spaeter die
+# falsche Bedingung geprueft worden.
+
+class _Programm:
+    key = "viewer"
+    name = "Verkaufsprogramm"
+    exe = EXE
+
+
+class _Einstellungen:
+    viewer_restart_enabled = True
+
+
+def _aufbau(monkeypatch, laeuft_vorher, laeuft_nachher):
+    """PIDs beim ersten und beim zweiten Nachsehen."""
+    antworten = iter([laeuft_vorher, laeuft_nachher])
+    monkeypatch.setattr(viewer_control, "find_program", lambda s, k: _Programm())
+    monkeypatch.setattr(viewer_control, "_running_pids", lambda exe: next(antworten))
+    monkeypatch.setattr(viewer_control, "_stop", lambda pids: None)
+    monkeypatch.setattr(viewer_control.time, "sleep", lambda s: None)
+
+
+def test_anhalten_gelungen(monkeypatch):
+    _aufbau(monkeypatch, [4711], [])
+    e = viewer_control.stop_program(_Einstellungen(), "viewer")
+    assert e.performed
+    assert "beendet" in e.reason
+
+
+def test_anhalten_wenn_es_gar_nicht_lief(monkeypatch):
+    """Kein Fehler: wer anhalten will, will dass es weg ist - und das ist es."""
+    _aufbau(monkeypatch, [], [])
+    e = viewer_control.stop_program(_Einstellungen(), "viewer")
+    assert e.performed
+    assert "lief bereits nicht" in e.reason
+
+
+def test_anhalten_scheitert_wenn_es_weiterlaeuft(monkeypatch):
+    """Der F-044-Fall: erhoeht laufend, wir kommen nicht heran."""
+    _aufbau(monkeypatch, [4711], [4711])
+    e = viewer_control.stop_program(_Einstellungen(), "viewer")
+    assert not e.performed
+    assert "laeuft weiter" in e.reason
+    assert "4711" in e.reason
+
+
+def test_anhalten_nicht_freigeschaltet(monkeypatch):
+    class Aus:
+        viewer_restart_enabled = False
+    e = viewer_control.stop_program(Aus(), "viewer")
+    assert not e.performed
+    assert "nicht freigeschaltet" in e.reason
+
+
+def test_anhalten_unbekanntes_ziel(monkeypatch):
+    monkeypatch.setattr(viewer_control, "find_program", lambda s, k: None)
+    e = viewer_control.stop_program(_Einstellungen(), "quatsch")
+    assert not e.performed
+    assert "Unbekanntes" in e.reason

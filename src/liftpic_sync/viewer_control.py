@@ -327,6 +327,68 @@ def _pid_alive(pid: int) -> bool:
     return str(pid) in ausgabe
 
 
+def stop_program(settings: Settings, key: str = "viewer") -> RestartOutcome:
+    """Ein konfiguriertes Programm anhalten, ohne es wieder zu starten. Wirft nie.
+
+    Bewusst getrennt von `restart_program`, statt dort einen Schalter
+    einzubauen: die beiden haben gegensaetzliche Erfolgsbedingungen. Ein
+    Neustart ist gelungen, wenn das Programm danach LAEUFT - ein Anhalten,
+    wenn es danach WEG ist. In einer Funktion mit `if neustart:` waere frueher
+    oder spaeter die falsche Bedingung geprueft worden.
+
+    Wichtig fuer den Aufrufer: nichts startet dieses Programm nach. Keines der
+    hier steuerbaren Programme steht in einem Autostart. Wer anhaelt, haelt bis
+    jemand es wieder startet - von Hand am Automaten oder ueber den
+    Neustart-Knopf.
+    """
+    if not settings.viewer_restart_enabled:
+        return RestartOutcome(False, "Steuerung ist auf diesem PC nicht freigeschaltet")
+
+    programm = find_program(settings, key)
+    if programm is None:
+        return RestartOutcome(
+            False, f"Unbekanntes oder nicht eingerichtetes Ziel: {key!r}"
+        )
+    exe = programm.exe
+
+    try:
+        pids = _running_pids(exe)
+    except Exception:
+        log.exception("stop %s: could not check", programm.key)
+        return RestartOutcome(False, f"{programm.name}: Nachsehen war nicht moeglich")
+
+    if not pids:
+        # Kein Fehler. Wer anhalten will, will dass es weg ist - und das ist es.
+        log.info("stop %s: was not running", programm.key)
+        return RestartOutcome(True, f"{programm.name} lief bereits nicht")
+
+    log.warning("stop %s: stopping %s", programm.key, ", ".join(str(p) for p in pids))
+    try:
+        _stop(pids)
+    except Exception:
+        log.exception("stop %s: stopping failed", programm.key)
+        return RestartOutcome(False, f"{programm.name} konnte nicht beendet werden")
+
+    time.sleep(1.0)
+    try:
+        uebrig = _running_pids(exe)
+    except Exception:
+        log.exception("stop %s: could not verify", programm.key)
+        return RestartOutcome(True, f"{programm.name} beendet, Kontrolle war nicht moeglich")
+
+    if uebrig:
+        # Der haeufigste Grund: das Programm laeuft erhoeht und wir nicht.
+        # Das ehrlich sagen, statt Erfolg zu behaupten (F-044).
+        return RestartOutcome(
+            False,
+            f"{programm.name} laeuft weiter (PID {', '.join(str(p) for p in uebrig)}) - "
+            "vermutlich mit hoeheren Rechten als der Agent",
+        )
+
+    log.info("stop %s: done", programm.key)
+    return RestartOutcome(True, f"{programm.name} beendet")
+
+
 def restart_program(settings: Settings, key: str = "viewer") -> RestartOutcome:
     """Ein konfiguriertes Programm anhalten und neu starten. Wirft nie.
 

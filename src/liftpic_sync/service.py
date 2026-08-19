@@ -27,7 +27,7 @@ from .supabase_client import SupabaseIngestClient
 from .uploader import UploadWorker
 from .viewer_control import (
     find_program, in_night_window, laeuft_ohne_bildschirm, restart_program,
-    restartable_programs, trigger_test_photo,
+    restartable_programs, stop_program, trigger_test_photo,
 )
 from . import __version__
 
@@ -1077,6 +1077,7 @@ class LiftpicService:
             )
             return
 
+        # Anhalten kennt kein "heute Nacht". Wer anhaelt, will es jetzt.
         if mode == "tonight" and not in_night_window(self.settings):
             log.info(
                 "restart order '%s' is scheduled for the quiet window (%s-%s), waiting",
@@ -1098,17 +1099,26 @@ class LiftpicService:
             self._pending_restart_ack = request_id or "done"
             return
 
+        anhalten = mode == "stop"
         log.warning(
-            "carrying out dashboard restart order '%s' (target=%s, mode=%s)",
-            request_id, target, mode,
+            "carrying out dashboard %s order '%s' (target=%s, mode=%s)",
+            "stop" if anhalten else "restart", request_id, target, mode,
         )
-        outcome = restart_program(self.settings, target)
+        # Anhalten und Neustarten laufen ueber denselben, bereits abgesicherten
+        # und quittierten Auftragsweg - aber ueber getrennte Funktionen, weil
+        # ihre Erfolgsbedingungen gegensaetzlich sind: der Neustart ist gelungen,
+        # wenn das Programm danach LAEUFT, das Anhalten, wenn es WEG ist.
+        outcome = (stop_program if anhalten else restart_program)(self.settings, target)
         if outcome.performed:
             log.warning("%s on dashboard order '%s'", outcome.reason, request_id)
             self.store.record_health_event(
                 kind="restart", severity="info",
                 summary=outcome.reason,
-                detail=f"Vom Dashboard beauftragt ({mode})",
+                detail=(
+                    "Vom Dashboard beauftragt (anhalten) - es startet nichts "
+                    "nach, das Programm bleibt aus, bis es jemand wieder startet"
+                    if anhalten else f"Vom Dashboard beauftragt ({mode})"
+                ),
             )
             # Acknowledged on the next poll; the order stays open until then, so
             # a crash between restart and ack simply repeats the restart rather
