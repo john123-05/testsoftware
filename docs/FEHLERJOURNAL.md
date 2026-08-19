@@ -64,6 +64,33 @@ Verwandt:   Der offene TODO-Punkt „verschwundene Geräte sind nicht von nie
             Handlung.
 Wiederkehr: —
 
+## F-045 — Die Health-Function reicht nur bekannte Felder durch
+Status:     behoben (`operator-liftpic-health` v9, 19.08.2026)
+Gesehen:    19.08.2026, die neue Kameraseite meldete „Für diesen Park meldet
+            kein Automat eine Kamerasoftware"
+Beleg:      In der Datenbank stand für `testrechner1` ein vollständiges
+            `camera_settings` (DFK 33GX545, Nr. 42320366, alle Werte). Im
+            Dashboard kam nichts an.
+Ursache:    `operator-liftpic-health` baut die Antwort aus einer **festen
+            Liste** von Feldern. Was der Agent zusätzlich meldet, wird still
+            verworfen. Das ist als Entwurf richtig — die Function ist die
+            Grenze zwischen Automat und Kunde, und was durchgeht, soll bewusst
+            gewählt sein. Es heißt aber: **jedes neue Feld im Herzschlag
+            braucht hier eine Zeile**, sonst existiert es für das Dashboard
+            nicht. Das war nirgends notiert.
+Behebung:   `camera_settings: status.camera_settings ?? null` ergänzt.
+Wichtig:    Beim Ausrollen über die Programmierschnittstelle wurde
+            `verify_jwt` **ausdrücklich auf false** gesetzt. Der Vorgabewert
+            ist `true`, und genau daran ist F-031 gescheitert. Diese Function
+            prüft selbst gegen das Operator-Projekt; ein vom Gateway
+            erzwungener JWT wäre dort nie gültig.
+            Belegt nach dem Deploy: ein Aufruf ohne Anmeldung antwortet
+            `401 {"error":"Missing bearer token"}` — das ist die **eigene**
+            Prüfung. Ein Gateway-Fehler hätte „Invalid JWT" gesagt.
+Merksatz:   Neues Feld im Herzschlag? Dann auch in `operator-liftpic-health`
+            eintragen. Sonst sucht man den Fehler im Agenten, wo keiner ist.
+Wiederkehr: —
+
 ## F-042 — „Dashboard lädt…" konnte für immer stehen bleiben
 Status:     behoben (dashboard2 `24e4d6d`, 17.08.2026)
 Gesehen:    17.08.2026, nachdem F-041 behoben war und das Problem blieb
