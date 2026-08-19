@@ -64,6 +64,40 @@ Verwandt:   Der offene TODO-Punkt „verschwundene Geräte sind nicht von nie
             Handlung.
 Wiederkehr: —
 
+## F-049 — Bekannte Geräte konnten in zwei Kacheln zerfallen
+Status:     behoben (dashboard2, 19.08.2026)
+Gesehen:    19.08.2026, Betreiber: „warum haben wir zweimal Verkaufsprogramm,
+            einmal als aus, einmal als ruhig"
+Beleg:      Herzschlag von `testrechner1` enthielt fürs Verkaufsprogramm ZWEI
+            Meldungen mit unterschiedlichem Zustand:
+            Probe (Messung): `status: "off"` — der Prozess lief nicht (wir
+            hatten ihn kurz zuvor über „Beenden" angehalten).
+            Device (Protokoll): `status: "idle"`, `merge_key:
+            "viewer|verkaufsprogramm"` — das Protokoll hatte 4,9 Std. nichts
+            geschrieben.
+Ursache:    `zusammenfuehren()` bildet den Schlüssel einer Kachel aus dem
+            `merge_key`, wenn einer mitkommt, sonst aus dem Klarnamen. Der
+            `merge_key` existiert, damit zwei UNBEKANNTE Protokolle
+            (beide „Sonstige Protokolle") nicht ineinander verschmelzen. Er
+            wird aber nur von Geräte-Meldungen (Protokollen) mitgeschickt,
+            nie von Messungen (Proben). Für ein bekanntes Gerät wie das
+            Verkaufsprogramm bekam die Probe also den Schlüssel
+            `"verkaufsprogramm"`, das Protokoll `"viewer|verkaufsprogramm"` —
+            zwei verschiedene Schlüssel, zwei Kacheln, obwohl beide dasselbe
+            Gerät meinten.
+Folge:      Kein Datenfehler - beide Zahlen stimmten einzeln. Aber der
+            Betreiber sah zwei widersprüchliche Zustände für ein Gerät, wo
+            klar sein sollte: „läuft nicht" ist der ernstere Befund und
+            gehört in eine Kachel, nicht daneben ein zweiter mit „läuft,
+            meldet aber lange nichts".
+Behebung:   Der `merge_key` gilt jetzt nur noch für unbekannte Protokolle
+            (`benenne(name).quelle === 'unbekannt'`). Bekannte Geräte werden
+            wieder über ihren Klarnamen zusammengeführt - dort, wo Probe und
+            Device ohnehin denselben Namen tragen. Zwei unbekannte Protokolle
+            bleiben weiterhin getrennt, das war der ursprüngliche Zweck des
+            Schlüssels und ist unverändert.
+Wiederkehr: —
+
 ## F-047 — "Beenden" startete neu, weil der Agent alten Code fuhr
 Status:     behoben (Agent neu gestartet, 19.08.2026)
 Gesehen:    19.08.2026, Betreiber: „ich habe das beendet, und er hat es
