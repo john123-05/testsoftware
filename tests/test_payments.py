@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from liftpic_sync.payments import (
-    Muenzereignis, Verkauf, fasse_zusammen, lies_kartenzahlungen,
+    Kartenzahlung, Muenzereignis, Verkauf, fasse_zusammen, lies_kartenzahlungen,
     lies_muenzbestand, lies_muenzereignisse, lies_verkaeufe,
     muenzpruefer_arbeitet, pruefe_alle, pruefe_verkauf,
 )
@@ -413,8 +413,52 @@ def test_gratis_betrieb_erzeugt_keinen_alarm():
 
     assert befund.zahlungsart == "unbekannt"
     assert befund.sicher is True
-    assert befund.hinweis == ""
+    # Seit F-050 nennt der Hinweis den Grund, statt leer zu bleiben - hier den
+    # ehrlichsten aller Gruende: es gibt ueberhaupt keine Zahlungsdaten.
+    assert "protokoll" in befund.hinweis.lower()
     assert fasse_zusammen([befund]).auffaellig == []
+
+
+# --------------------------------------------------------- F-050: Erklaerung
+
+def test_unbekannt_nennt_abstand_zum_naechsten_muenzeinwurf():
+    """Kein Ereignis im Fenster, aber eins in der Naehe - das gehoert gesagt."""
+    verkauf = Verkauf(zeit=z("14.08.2026 12:10:00"), foto="a.jpg", cent=0)
+    # 20 Minuten entfernt: ausserhalb des 4/2-Minuten-Fensters der Pruefung,
+    # aber nah genug, um kein Zufall zu sein.
+    weit_weg = Muenzereignis(zeit=z("14.08.2026 12:30:00"), art="ein", cent=500, angefordert=500)
+
+    befund = pruefe_verkauf(verkauf, [weit_weg], [])
+
+    assert befund.zahlungsart == "unbekannt"
+    assert "20 Min" in befund.hinweis
+    assert "Münzeinwurf" in befund.hinweis
+
+
+def test_unbekannt_erkennt_vermutlichen_mehrfachkauf():
+    """Zwei Statistik-Zeilen binnen Sekunden sind meist ein Kauf, zwei Fotos."""
+    erster = Verkauf(zeit=z("14.08.2026 12:00:00"), foto="a.jpg", cent=0)
+    zweiter = Verkauf(zeit=z("14.08.2026 12:00:12"), foto="b.jpg", cent=0)
+    muenze = [Muenzereignis(zeit=z("14.08.2026 11:59:58"), art="ein", cent=500, angefordert=500)]
+
+    befunde = pruefe_alle([erster, zweiter], muenze, [])
+
+    assert befunde[0].zahlungsart == "bar"                # bekommt die Muenze
+    assert befunde[1].zahlungsart == "unbekannt"           # zweites Foto, keine eigene Muenze
+    assert "vermutlich zusammen" in befunde[1].hinweis
+
+
+def test_unbekannt_findet_naehere_kartenzahlung_als_muenze():
+    verkauf = Verkauf(zeit=z("14.08.2026 12:10:00"), foto="a.jpg", cent=0)
+    weite_muenze = Muenzereignis(zeit=z("14.08.2026 14:00:00"), art="ein", cent=500, angefordert=500)
+    nahe_karte = Kartenzahlung(
+        zeit=z("14.08.2026 13:00:00"), cent=500, erfolgreich=True, ergebnis="0", belegnr="1",
+    )
+
+    befund = pruefe_verkauf(verkauf, [weite_muenze], [nahe_karte])
+
+    assert "Kartenzahlung" in befund.hinweis
+    assert "Münzeinwurf" not in befund.hinweis
 
 
 def test_pruefung_ohne_bekannten_preis_ueber_die_preisliste():

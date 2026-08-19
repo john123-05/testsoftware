@@ -508,6 +508,82 @@ def _im_fenster(
     return eintraege[links:rechts]
 
 
+def _naechstes_ereignis_sek(zeit: datetime, sortierte_zeiten: list[datetime]) -> int | None:
+    """Wie viele Sekunden bis zum naechsten Ereignis, egal in welche Richtung.
+
+    Rein diagnostisch (F-050) - nicht Teil der eigentlichen Zuordnung.
+    `pruefe_verkauf` schneidet sein Fenster bewusst an den Nachbarverkaeufen
+    ab, damit nichts falsch zugeordnet wird. Diese Funktion schneidet NICHTS
+    ab: sie beantwortet nur "war ueberhaupt irgendwo in der Naehe etwas?" -
+    das ist der Unterschied zwischen "hier fehlt wirklich eine Zahlung" und
+    "hier war eine, nur zu weit weg oder einem Nachbarverkauf zugeschlagen".
+    """
+    if not sortierte_zeiten:
+        return None
+    i = bisect.bisect_left(sortierte_zeiten, zeit)
+    kandidaten = []
+    if i < len(sortierte_zeiten):
+        kandidaten.append(sortierte_zeiten[i])
+    if i > 0:
+        kandidaten.append(sortierte_zeiten[i - 1])
+    if not kandidaten:
+        return None
+    naechstes = min(kandidaten, key=lambda z: abs((z - zeit).total_seconds()))
+    return int(abs((naechstes - zeit).total_seconds()))
+
+
+def _unbekannt_erklaeren(
+    zeit: datetime,
+    ein_zeiten: list[datetime],
+    karten_zeiten: list[datetime],
+    voriger_verkauf: datetime | None,
+) -> str:
+    """Warum sich ein Verkauf keiner Zahlung zuordnen liess - in Worten.
+
+    Vorher stand hier immer nur "unbekannt", ohne Grund. Bei Imst betraf das
+    92 % aller Verkaeufe (F-050) - eine Zahl, die niemand einordnen konnte,
+    ohne die Rohdateien von Hand zu lesen. Diese Funktion liest sie stattdessen
+    aus und nennt den wahrscheinlichsten Grund - eine Erklaerung, keine neue
+    Zuordnung: an der Zahlungsart oder den gezaehlten Summen aendert das nichts.
+    """
+    muenz_abstand = _naechstes_ereignis_sek(zeit, ein_zeiten)
+    karten_abstand = _naechstes_ereignis_sek(zeit, karten_zeiten)
+
+    # Zwei Verkaeufe innerhalb weniger Sekunden sind fast immer ein einziger
+    # Kauf mit mehreren Fotos (Kombi-Angebot): eine Muenze, zwei Zeilen in der
+    # Statistik. Die zweite Zeile hat dann zu Recht kein eigenes Geldereignis.
+    if voriger_verkauf is not None:
+        abstand_vorheriger = (zeit - voriger_verkauf).total_seconds()
+        if 0 <= abstand_vorheriger <= MEHRFACHKAUF_SEKUNDEN:
+            return (
+                f"{int(abstand_vorheriger)} Sek. nach dem vorherigen Kauf - "
+                "vermutlich zusammen mit diesem bezahlt (mehrere Fotos, eine Zahlung)"
+            )
+
+    naeher = None
+    if muenz_abstand is not None and (karten_abstand is None or muenz_abstand <= karten_abstand):
+        naeher = ("Münzeinwurf", muenz_abstand)
+    elif karten_abstand is not None:
+        naeher = ("Kartenzahlung", karten_abstand)
+
+    if naeher is None:
+        return "Weder Münz- noch Kartenprotokoll verzeichnen hier etwas"
+
+    art, abstand = naeher
+    if abstand <= 60:
+        return f"{art} {abstand} Sek. entfernt, aber einem Nachbarverkauf zugeordnet"
+    if abstand < 3600:
+        return f"Nächst gelegene {art} liegt {abstand // 60} Min. entfernt - zu weit für eine sichere Zuordnung"
+    return f"Nächst gelegene {art} liegt {abstand // 3600} Std. entfernt"
+
+
+# Zwei Verkaeufe binnen dieser Spanne gelten als derselbe Vorgang (mehrere
+# Fotos, eine Zahlung) - nicht als zwei separate, von denen einer unbezahlt
+# blieb. 90 Sekunden sind grosszuegig genug fuer "Foto ansehen, zweites dazu
+# waehlen", aber zu knapp fuer zwei verschiedene Gaeste nacheinander.
+MEHRFACHKAUF_SEKUNDEN = 90
+
+
 def pruefe_verkauf(
     verkauf: Verkauf,
     muenzereignisse: list[Muenzereignis],
@@ -517,6 +593,8 @@ def pruefe_verkauf(
     moegliche_preise: list[int] | None = None,
     zeiten_muenzen: list[datetime] | None = None,
     zeiten_karten: list[datetime] | None = None,
+    ein_zeiten_alle: list[datetime] | None = None,
+    karten_zeiten_alle: list[datetime] | None = None,
 ) -> Zahlungsbefund:
     """Zahlungsart bestimmen und das Wechselgeld nachrechnen.
 
@@ -563,14 +641,32 @@ def pruefe_verkauf(
         )
 
     if eingeworfen == 0:
-        # Weder Muenzen noch Karte: im Gratis-Betrieb voellig normal, sonst ein
-        # Hinweis darauf, dass die Quellen nicht zusammenpassen.
+        # Weder Muenzen noch Karte im Fenster gefunden. Warum, steht jetzt im
+        # Hinweis (F-050) - vorher stand hier nur "unbekannt", ohne Grund.
+        #
+        # Ohne vorbereitete Listen (Direktaufruf, etwa in Tests) werden sie
+        # hier aus den ohnehin vorhandenen Rohlisten abgeleitet - teurer als
+        # der vorbereitete Weg aus pruefe_alle, aber fuer einen einzelnen
+        # Verkauf unerheblich.
+        ein_zeiten = (
+            ein_zeiten_alle if ein_zeiten_alle is not None
+            else sorted(e.zeit for e in muenzereignisse if e.art == "ein")
+        )
+        karten_zeiten = (
+            karten_zeiten_alle if karten_zeiten_alle is not None
+            else sorted(k.zeit for k in kartenzahlungen if k.erfolgreich)
+        )
+        hinweis = _unbekannt_erklaeren(
+            verkauf.zeit, ein_zeiten, karten_zeiten, voriger_verkauf,
+        )
+        if verkauf.cent != 0:
+            hinweis = "Keine Zahlung zu diesem Verkauf gefunden - " + hinweis
         return Zahlungsbefund(
             verkauf=verkauf, zahlungsart="unbekannt",
             eingeworfen_cent=0, ausgezahlt_cent=ausgezahlt,
             erwartetes_wechselgeld_cent=0, abweichung_cent=0,
             sicher=verkauf.cent == 0,
-            hinweis="" if verkauf.cent == 0 else "Keine Zahlung zu diesem Verkauf gefunden",
+            hinweis=hinweis,
         )
 
     # Der Preis steht selten in der Statistikdatei. Dann wird andersherum
@@ -632,6 +728,10 @@ def pruefe_alle(
     # Einmal fuer alle Verkaeufe, nicht einmal je Verkauf.
     zeiten_muenzen = [e.zeit for e in muenzereignisse]
     zeiten_karten = [k.zeit for k in kartenzahlungen]
+    # Fuer die Diagnose bei "unbekannt": nur erfolgreiche Einwuerfe/Zahlungen,
+    # sortiert, ohne das Fenster der eigentlichen Pruefung.
+    ein_zeiten_alle = sorted(e.zeit for e in muenzereignisse if e.art == "ein")
+    karten_zeiten_alle = sorted(k.zeit for k in kartenzahlungen if k.erfolgreich)
 
     befunde: list[Zahlungsbefund] = []
     for i, verkauf in enumerate(verkaeufe):
@@ -642,6 +742,8 @@ def pruefe_alle(
             moegliche_preise=moegliche_preise,
             zeiten_muenzen=zeiten_muenzen,
             zeiten_karten=zeiten_karten,
+            ein_zeiten_alle=ein_zeiten_alle,
+            karten_zeiten_alle=karten_zeiten_alle,
         ))
     return befunde
 

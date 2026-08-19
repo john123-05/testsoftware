@@ -64,6 +64,41 @@ Verwandt:   Der offene TODO-Punkt „verschwundene Geräte sind nicht von nie
             Handlung.
 Wiederkehr: —
 
+## F-050 — „Unbekannt" ohne Grund bei 92 % aller Verkäufe an Imst
+Status:     behoben (Agent + dashboard2, 19.08.2026)
+Gesehen:    19.08.2026, Betreiber: „wir wissen nicht, was Münzeinnahmen sind
+            und was mit Karte bezahlt wurde … das muss genauer sein und
+            genau anzeigen für jeden Kauf"
+Beleg:      Imst (`pcneu`), 7 Tage: 64 bar, 0 Karte, **768 unbekannt** von
+            832 Verkäufen (92 %). Karte 0, weil `card_log_glob` für Imst nie
+            gesetzt wurde — dort ist unklar, ob überhaupt ein Kartenterminal
+            existiert (offener TODO-Punkt). Für die 768 „unbekannt" gab es
+            aber gar keinen Grund, nur das Wort.
+Ursache:    `pruefe_verkauf` gibt bei „kein Ereignis im Fenster" seit jeher
+            `zahlungsart="unbekannt"` zurück und setzt `hinweis` nur, wenn
+            ein Preis bekannt war (praktisch nie — 1323 von 1332 Zeilen in
+            `Statistic.txt` haben keinen). Der eigentliche Grund — zu weit
+            entfernt? gar kein Ereignis? Teil eines Mehrfachkaufs? — wurde
+            nirgends festgehalten, obwohl die Daten dafür längst gelesen
+            werden.
+Behebung:   Neue Funktion `_unbekannt_erklaeren()`: sucht — rein diagnostisch,
+            ohne das Zeitfenster der eigentlichen Prüfung — das nächste
+            Münz- oder Kartenereignis in *beide* Richtungen und benennt den
+            Grund. Erkennt insbesondere **Mehrfachkäufe**: zwei
+            `Statistic.txt`-Zeilen binnen 90 Sekunden sind meist ein Kauf mit
+            mehreren Fotos, eine Zahlung — nicht ein bezahlter und ein
+            unbezahlter Verkauf. Am Testrechner sofort belegt: zwei
+            Verkäufe 79 bzw. 83 Sekunden auseinander wurden korrekt so
+            erkannt. Alle anderen Testrechner-Fälle zeigten „nächstgelegener
+            Münzeinwurf liegt 4000+ Stunden entfernt" — alte Testdaten ohne
+            jede Nähe zu echten Münzprotokollen, kein Fehler.
+            Ändert nichts an Zahlungsart, Summen oder `sicher` — reine
+            Erklärung, keine neue Zuordnung.
+            Dashboard: der Grund erscheint jetzt auf der Käufe-Seite in der
+            Beschreibung und auf der Umsatz-Seite unter der Kauftabelle
+            sowie beim Zeigen auf den „unbekannt"-Chip.
+Wiederkehr: —
+
 ## F-049 — Bekannte Geräte konnten in zwei Kacheln zerfallen
 Status:     behoben (dashboard2, 19.08.2026)
 Gesehen:    19.08.2026, Betreiber: „warum haben wir zweimal Verkaufsprogramm,
