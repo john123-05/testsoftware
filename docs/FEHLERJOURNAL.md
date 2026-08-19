@@ -64,6 +64,29 @@ Verwandt:   Der offene TODO-Punkt „verschwundene Geräte sind nicht von nie
             Handlung.
 Wiederkehr: —
 
+## F-046 — Bild-URL selbst signiert, obwohl der Bucket öffentlich ist
+Status:     behoben (dashboard2, 19.08.2026)
+Gesehen:    19.08.2026, „wenn ich auf Bild neu laden gehe, passiert nichts"
+Beleg:      Die Fotos lagen in der Datenbank (neuestes 13:26:55, vom Betreiber
+            ausgelöst). Mit dem anonymen Schlüssel nachgestellt:
+            Tabelle lesen → `HTTP 200`, drei Zeilen.
+            Bild-URL signieren → **`HTTP 400`**.
+Ursache:    Ich habe mir für die Kameraseite einen eigenen Weg gebaut:
+            Abfrage plus `createSignedUrl`. Signieren darf der anonyme
+            Schlüssel aber nicht. Nötig war es auch nie — der Bucket ist
+            **öffentlich**, und der Foto-Browser holt seine Bilder längst über
+            `photoBrowser.ts` mit einer schlichten `/object/public/`-URL.
+            Es gab also einen erprobten Weg, und ich habe daneben einen
+            zweiten gebaut, der nicht funktioniert.
+Behebung:   Die Seite benutzt jetzt `fetchRecentPhotos(parkId, 1)` — denselben
+            Weg wie der Foto-Browser. Ein Fehler beim Laden wird angezeigt
+            statt verschluckt; vorher endete der Fehlerpfad in einem stillen
+            `return`, weshalb der Knopf wirkte, als täte er nichts.
+Lehre:      Vor einer neuen Hilfsfunktion nachsehen, ob es die schon gibt.
+            Zwei Wege zum selben Ziel heißen: einer davon wird irgendwann
+            nicht mehr gepflegt — und es ist selten der ältere.
+Wiederkehr: —
+
 ## F-045 — Die Health-Function reicht nur bekannte Felder durch
 Status:     behoben (`operator-liftpic-health` v9, 19.08.2026)
 Gesehen:    19.08.2026, die neue Kameraseite meldete „Für diesen Park meldet
