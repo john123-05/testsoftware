@@ -10,6 +10,54 @@ zeigt, was gebaut wurde und was belegt ist.
 
 ---
 
+## GANZ OBEN — der vereinbarte Fahrplan (22.08.2026)
+
+Reihenfolge, die der Betreiber festgelegt hat. Nicht umsortieren, ohne dass
+er es sagt.
+
+**1. Erst alles auf dem Testrechner sauber laufen lassen.**
+Stand heute: F-045 bis F-051 sind gebaut, getestet und auf dem Testrechner
+verifiziert (Agent laeuft mit dem neuen Code, Dashboard zeigt korrekte
+Betraege). Bevor irgendetwas live geht: hier zuerst pruefen, ob es rund
+laeuft - Kamera-Neustart, Testfoto, Beenden/Pause, Zahlungsanzeige.
+
+**2. Danach arbeitet der Betreiber vom Mac aus am selben Dashboard-Repo
+weiter** (Design, Frontend) - `github.com/john123-05/dashboard2`, derselbe
+Ablauf wie hier: aendern, committen, pushen. **Wichtig zu wissen, bevor er
+dort etwas macht:**
+  - GitHub ist die eine Wahrheit, aber es gibt DREI getrennte Wege, wie Code
+    bei den Kunden ankommt: (a) GitHub → bolt.new → Netlify fuers Dashboard,
+    (b) GitHub-Kopien der Supabase-Functions, die aber nur gelten, wenn sie
+    auch ausgerollt wurden, (c) das Uploader-Repo (`testsoftware`) fuer den
+    Agenten, der nur per `update_liftpic.ps1` auf einen Automaten kommt.
+    Diese drei laufen NIE von selbst synchron - siehe F-013 (Wiederkehr
+    17.08.) und die Repo-Sync-Luecke vom 19.08. Vor jedem bolt.new-Publish
+    dort erst den GitHub-Stand holen, sonst wiederholt sich F-013.
+  - `/version.txt` auf dem Dashboard sagt in einer Sekunde, ob ein Deploy
+    wirklich angekommen ist.
+  - Falls von zwei Stellen gleichzeitig gearbeitet wird (Mac + hier): vor
+    jedem Push `git fetch` + `git log --oneline -5 origin/main` gegenpruefen,
+    damit nicht wieder eine Function-Aenderung die andere ueberschreibt (wie
+    beim Personalisierungs-Umbau am 19.08.).
+
+**3. Erst danach: live schalten auf weiteren PCs (Imst zuerst).** Was dafuer
+konkret zu tun ist:
+  a. Alle offenen SQL-Nacharbeiten ausfuehren, die noch niemand im SQL-Editor
+     laufen liess: `docs/sql/F-039-verkaufsdatum.sql` (Uploader-Repo) und
+     `docs/sql/kiosk_photos_for_day_exclude_test.sql` (Dashboard-Repo).
+  b. Auf Imst: `preflight` (rein lesend) → Ordnersicherung →
+     `update_liftpic.ps1` mit dem aktuellen `main`-Stand → 30 Minuten
+     beobachten (Abholcode bleibt 2734, Uploads laufen, keine neuen Fehler
+     im Verlauf). Genaues Schema in AP-8 weiter unten in dieser Datei.
+  c. Card-Terminal an Imst klaeren (Punkt weiter unten: existiert dort
+     ueberhaupt eins? `card_log_glob` ist fuer `pcneu` nicht gesetzt).
+  d. Kameraeinstellungen-Seite bewusst NICHT live schalten, solange sie nicht
+     an echten Werten (nicht nur Testrechner-Werten) erprobt ist.
+  e. Nach dem Update: dieselbe Zahlungspruefung wie hier auf dem Testrechner
+     wiederholen - stimmen Betraege, Zahlungsart, „unzugeordnete Ereignisse"?
+
+---
+
 ## Dringend — betrifft laufende Anlagen
 
 ### 0. Kein Herzschlag-Verlauf — Ausfallzeiten sind nicht rekonstruierbar
