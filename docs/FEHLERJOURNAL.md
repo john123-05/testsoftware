@@ -64,6 +64,74 @@ Verwandt:   Der offene TODO-Punkt „verschwundene Geräte sind nicht von nie
             Handlung.
 Wiederkehr: —
 
+## F-051 — Karte falsch verworfen, Betraege verworfen, Geld ohne Kauf unsichtbar
+Status:     behoben (Agent, 22.08.2026)
+Gesehen:    22.08.2026, Betreiber hatte am 19.08. echte Testzahlungen (Bar und
+            Karte, wenige Cent) durchgefuehrt und wollte wissen, ob und wo sie
+            aufgezeichnet wurden
+Beleg:      In den Rohdateien vom 19.08.2026, 20:39-20:51 Uhr:
+            * Kartenterminal: ein echter 0,02-EUR-Testkauf, vom Kartennetz
+              genehmigt (Beleg 0093, Trace 000176), vom Terminal aber mit
+              Ergebnis=999 ("Offener Kassenschnitt vorhanden") beantwortet.
+              Der anschliessende Tagesabschluss bestaetigt "3 MasterCard-
+              Zahlungen, 0,05 EUR" fuer genau diesen Belegbereich - die Zahlung
+              war real.
+            * Muenzpruefer: 2,00 EUR und 0,20 EUR angenommen, beide
+              Auszahlungen fehlgeschlagen (=> 0), weil "Tube cassette
+              removed" - die Wechselgeldroehre war in dem Moment entnommen.
+            * Keine dieser Bewegungen erschien irgendwo in unserer Auswertung.
+Ursache:    Drei unabhaengige Luecken, alle in derselben Untersuchung
+            gefunden:
+            1. lies_kartenzahlungen wertete nur Ergebnis == "0" als
+               erfolgreich. Ein Terminal, das eine echte Buchung mit einem
+               abweichenden Code quittiert (hier: Hinweis auf einen faelligen
+               Tagesabschluss, keine Ablehnung), fiel komplett durch.
+            2. Zahlungsbefund zeigte ueberall verkauf.cent als Betrag an -
+               der Preis aus Statistic.txt, der dort in 1323 von 1332 Zeilen
+               gar nicht steht. pruefe_verkauf LAS den echten Betrag laengst
+               (aus dem Kartenbeleg, oder ueber die Preisliste erschlossen),
+               warf ihn aber weg, bevor er die Funktion verliess. Die
+               Umsatzseite zeigte deshalb bei so gut wie jedem Kauf 0,00 EUR -
+               unabhaengig davon, ob die Zahlungsart richtig erkannt wurde.
+            3. Die gesamte Auswertung ging von den VERKAEUFEN aus ("wie wurde
+               dieser Kauf bezahlt"), nie von den EREIGNISSEN ("wohin ist
+               dieses Geld gegangen"). Ein Muenzeinwurf ohne nahen Verkauf war
+               dadurch bauartbedingt unsichtbar - so wie am 19.08.
+Behebung:   1. _wirkt_gebucht(): eine Zahlung zaehlt auch ohne
+               Ergebnis == "0" als gebucht, wenn Kartennummer, Belegnummer
+               und ein Betrag vorhanden sind UND der Text keine der bekannten
+               Ablehnungs-Formulierungen enthaelt. Als "unsicher" markiert, mit
+               eigenem Hinweistext - der Mensch am Kontoauszug kann das besser
+               pruefen als der Automat.
+               Nebenbefund dabei: die urspruengliche _VERWALTUNG-Regex
+               (Tagesabschluss/Kassenschnitt) haette "Offener Kassenschnitt
+               vorhanden" selbst mitgetroffen und die Zahlung dadurch WIEDER
+               verworfen - trotz des eigens dafuer geschriebenen Kommentars.
+               Jetzt eng gefasst auf "...erfolgt", zusaetzlich abgesichert
+               ueber das Feld Funktion=2, das ein echter Tagesabschluss immer
+               traegt.
+               Zweiter Nebenbefund: FromZvt.Betrag stand bei genau diesem
+               Beleg auf "0", obwohl ToZvt.Betrag und der Klartext den realen
+               Betrag nannten. Der Betrag faellt jetzt auf die Anfrage zurueck,
+               wenn die Antwort "0" meldet.
+            2. Zahlungsbefund.betrag_ermittelt_cent neu: bei Karte der
+               tatsaechliche Belegbetrag, bei Bar der bekannte oder ueber die
+               Preisliste erschlossene Preis. fasse_zusammen summiert jetzt
+               dieses Feld statt verkauf.cent - bar_cent/karte_cent auf
+               der Umsatzseite zeigen damit erstmals echtes Geld.
+            3. finde_unzugeordnete_ereignisse(): ein zweiter, unabhaengiger
+               Durchlauf ueber alle Muenz- und Kartenereignisse, der fragt
+               "gehoert das ueberhaupt zu einem Verkauf" statt "wie wurde
+               dieser Verkauf bezahlt". Was zu keinem Verkauf in der Naehe
+               passt, erscheint als eigener Eintrag - genau die 2,20 EUR
+               Bargeld und der 2-Cent-Kartentest vom 19.08. tun das jetzt.
+Beleg:      Gegen die echten Rohdateien vom 19.08. nachgerechnet: die
+            2-Cent-Kartenzahlung wird jetzt als "karte, erfolgreich, unsicher"
+            erkannt und taucht unter "unzugeordnet" auf (Beleg 93); die
+            2,00 EUR und 0,20 EUR erscheinen dort ebenfalls, mit dem Hinweis
+            auf die fehlgeschlagene Auszahlung.
+Wiederkehr: -
+
 ## F-050 — „Unbekannt" ohne Grund bei 92 % aller Verkäufe an Imst
 Status:     behoben (Agent + dashboard2, 19.08.2026)
 Gesehen:    19.08.2026, Betreiber: „wir wissen nicht, was Münzeinnahmen sind

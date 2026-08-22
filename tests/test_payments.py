@@ -8,7 +8,8 @@ from datetime import datetime
 from pathlib import Path
 
 from liftpic_sync.payments import (
-    Kartenzahlung, Muenzereignis, Verkauf, fasse_zusammen, lies_kartenzahlungen,
+    Kartenzahlung, Muenzereignis, Verkauf, fasse_zusammen,
+    finde_unzugeordnete_ereignisse, lies_kartenzahlungen,
     lies_muenzbestand, lies_muenzereignisse, lies_verkaeufe,
     muenzpruefer_arbeitet, pruefe_alle, pruefe_verkauf,
 )
@@ -563,3 +564,153 @@ def test_aufteilung_erscheint_wenn_genug_erkannt_wurde():
 
     assert d["bar_anteil"] == 0.6
     assert d["karte_anteil"] == 0.4
+
+
+# ------------------------------------------------------ F-051: echte Betraege
+
+def test_kartenzahlung_mit_abweichendem_ergebnis_zaehlt_trotzdem(tmp_path: Path):
+    """Der Anlass: 0,02 EUR, Ergebnis=999 ('Offener Kassenschnitt vorhanden'),
+    aber Kartennummer, Belegnummer und Betrag sehen nach einer echten Buchung
+    aus. Ohne diese Lockerung waere die Zahlung spurlos verworfen worden."""
+    datei = tmp_path / "ZvtLog_2026-08-19_20-48-18-574.txt"
+    datei.write_text(
+        "[ToZvt]\nBetrag=2\n"
+        "[FromZvt]\n"
+        "Ergebnis=999\n"
+        "ErgebnisText=F0h (240) Offener Kassenschnitt vorhanden\n"
+        "PAN=523254xxxxxx3993\n"
+        "Betrag=2\n"
+        "BelegNr=93\n",
+        encoding="utf-8",
+    )
+    zahlungen = lies_kartenzahlungen(str(tmp_path / "ZvtLog_*.txt"))
+    assert len(zahlungen) == 1
+    k = zahlungen[0]
+    assert k.erfolgreich is True
+    assert k.unsicher is True
+    assert k.cent == 2
+
+
+def test_kartenzahlung_echt_abgelehnt_zaehlt_nicht(tmp_path: Path):
+    """Dieselbe Struktur, aber der Text sagt klar 'abgelehnt' - das darf die
+    Lockerung nicht uebersteuern."""
+    datei = tmp_path / "ZvtLog_2026-08-19_20-48-18-574.txt"
+    datei.write_text(
+        "[ToZvt]\nBetrag=2\n"
+        "[FromZvt]\n"
+        "Ergebnis=999\n"
+        "ErgebnisText=Karte abgelehnt\n"
+        "PAN=523254xxxxxx3993\n"
+        "Betrag=2\n"
+        "BelegNr=93\n",
+        encoding="utf-8",
+    )
+    zahlungen = lies_kartenzahlungen(str(tmp_path / "ZvtLog_*.txt"))
+    assert zahlungen[0].erfolgreich is False
+
+
+def test_tagesabschluss_zaehlt_weiterhin_nicht_als_zahlung(tmp_path: Path):
+    """Die Lockerung darf einen Tagesabschluss (Ergebnis=0, Betrag>0) nicht
+    ploetzlich als Verkauf zaehlen - PAN und Belegnummer fehlen dort ohnehin."""
+    datei = tmp_path / "ZvtLog_2026-08-19_20-48-36-812.txt"
+    datei.write_text(
+        "[ToZvt]\nBetrag=5\n"
+        "[FromZvt]\n"
+        "Ergebnis=0\n"
+        "ErgebnisText=Tagesabschluss erfolgt\n"
+        "Betrag=5\n"
+        "BelegNr=0\n",
+        encoding="utf-8",
+    )
+    zahlungen = lies_kartenzahlungen(str(tmp_path / "ZvtLog_*.txt"))
+    assert zahlungen[0].erfolgreich is False
+
+
+def test_kartenkauf_zeigt_den_wirklichen_betrag():
+    """Vorher stand hier immer verkauf.cent (fast immer 0) - jetzt der
+    tatsaechlich gebuchte Betrag aus dem Kartenbeleg."""
+    verkauf = Verkauf(zeit=z("19.08.2026 20:48:20"), foto="a.jpg", cent=0)
+    karte = Kartenzahlung(
+        zeit=z("19.08.2026 20:48:18"), cent=2, erfolgreich=True,
+        ergebnis="999", belegnr="93", unsicher=True,
+    )
+    befund = pruefe_verkauf(verkauf, [], [karte])
+    assert befund.zahlungsart == "karte"
+    assert befund.betrag_ermittelt_cent == 2
+    assert befund.as_dict()["betrag_cent"] == 2
+    assert "wirkt aber gebucht" in befund.hinweis
+
+
+def test_barkauf_zeigt_den_ueber_die_preisliste_ermittelten_betrag():
+    """Auch bei Bar stand vorher verkauf.cent (0) in der Anzeige - jetzt der
+    ueber die Preisliste erkannte tatsaechliche Preis."""
+    verkauf = Verkauf(zeit=z("14.08.2026 12:00:00"), foto="a.jpg", cent=0)
+    ein = Muenzereignis(zeit=z("14.08.2026 11:59:30"), art="ein", cent=1000, angefordert=1000)
+    aus = Muenzereignis(zeit=z("14.08.2026 12:00:05"), art="aus", cent=500, angefordert=500)
+    befund = pruefe_verkauf(verkauf, [ein, aus], [], moegliche_preise=[500])
+    assert befund.zahlungsart == "bar"
+    assert befund.betrag_ermittelt_cent == 500
+    assert befund.as_dict()["betrag_cent"] == 500
+
+
+def test_fasse_zusammen_zaehlt_den_ermittelten_betrag_nicht_den_statistik_preis():
+    """Der eigentliche F-051-Fehler: die Umsatzseite zeigte fast immer 0,00 EUR,
+    weil summiert wurde, was in Statistic.txt stand (fast nie ein Preis) -
+    nicht, was tatsaechlich bezahlt wurde."""
+    verkauf = Verkauf(zeit=z("14.08.2026 12:00:00"), foto="a.jpg", cent=0)
+    ein = Muenzereignis(zeit=z("14.08.2026 11:59:30"), art="ein", cent=500, angefordert=500)
+    befund = pruefe_verkauf(verkauf, [ein], [], moegliche_preise=[500])
+    uebersicht = fasse_zusammen([befund])
+    assert uebersicht.bar_cent == 500          # nicht 0
+
+
+# ------------------------------------------------- F-051: unzugeordnetes Geld
+
+def test_muenzeinwurf_ohne_verkauf_wird_gemeldet():
+    """Der genaue Vorfall vom 19.08.2026: 2,00 EUR und 0,20 EUR eingeworfen,
+    Roehre entnommen, keine Auszahlung, kein Verkauf folgt - bisher spurlos."""
+    verkaeufe = [Verkauf(zeit=z("14.08.2026 12:00:00"), foto="a.jpg", cent=0)]
+    weit_weg_vom_verkauf = Muenzereignis(
+        zeit=z("14.08.2026 13:00:00"), art="ein", cent=200, angefordert=200,
+    )
+    ereignisse = finde_unzugeordnete_ereignisse(verkaeufe, [weit_weg_vom_verkauf], [])
+    assert len(ereignisse) == 1
+    assert ereignisse[0].art == "muenze_ein"
+    assert ereignisse[0].cent == 200
+
+
+def test_muenzeinwurf_beim_verkauf_ist_nicht_unzugeordnet():
+    verkauf = Verkauf(zeit=z("14.08.2026 12:00:00"), foto="a.jpg", cent=0)
+    ein = Muenzereignis(zeit=z("14.08.2026 11:59:30"), art="ein", cent=500, angefordert=500)
+    ereignisse = finde_unzugeordnete_ereignisse([verkauf], [ein], [])
+    assert ereignisse == []
+
+
+def test_fehlgeschlagene_auszahlung_ohne_verkauf_wird_gemeldet():
+    verkaeufe = [Verkauf(zeit=z("14.08.2026 12:00:00"), foto="a.jpg", cent=0)]
+    fehlgeschlagen = Muenzereignis(
+        zeit=z("14.08.2026 13:00:00"), art="aus", cent=0, angefordert=200,
+    )
+    assert fehlgeschlagen.fehlgeschlagen is True
+    ereignisse = finde_unzugeordnete_ereignisse(verkaeufe, [fehlgeschlagen], [])
+    assert len(ereignisse) == 1
+    assert ereignisse[0].art == "muenze_aus_fehlgeschlagen"
+
+
+def test_karte_betrag_faellt_auf_angefragten_betrag_zurueck(tmp_path: Path):
+    """Realer Fall vom 19.08.2026: FromZvt.Betrag=0, obwohl ToZvt.Betrag=2 und
+    der Klartext 'EUR 0,02' nennt und die Zahlung sonst gebucht aussieht."""
+    datei = tmp_path / "ZvtLog_2026-08-19_20-48-18-574.txt"
+    datei.write_text(
+        "[ToZvt]\nBetrag=2\n"
+        "[FromZvt]\n"
+        "Ergebnis=999\n"
+        "ErgebnisText=F0h (240) Offener Kassenschnitt vorhanden\n"
+        "PAN=523254xxxxxx3993\n"
+        "Betrag=0\n"
+        "BelegNr=93\n",
+        encoding="utf-8",
+    )
+    zahlungen = lies_kartenzahlungen(str(tmp_path / "ZvtLog_*.txt"))
+    assert zahlungen[0].cent == 2
+    assert zahlungen[0].erfolgreich is True

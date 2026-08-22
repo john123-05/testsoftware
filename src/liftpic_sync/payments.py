@@ -127,6 +127,11 @@ class Kartenzahlung:
     erfolgreich: bool
     ergebnis: str
     belegnr: str
+    # Ergebnis-Code war nicht "0", aber Kartennummer, Belegnummer und Betrag
+    # sehen nach einer echten, gebuchten Zahlung aus (F-051). Steht dabei, weil
+    # der Automat sich hier nicht zu 100 % sicher sein kann - der Mensch am
+    # Kontoauszug schon.
+    unsicher: bool = False
 
 
 @dataclass(frozen=True)
@@ -156,13 +161,22 @@ class Zahlungsbefund:
     abweichung_cent: int
     sicher: bool
     hinweis: str = ""
+    # Der tatsaechlich ermittelte Betrag - NICHT dasselbe wie `verkauf.cent`.
+    #
+    # `verkauf.cent` kommt aus Statistic.txt und fehlt dort in praktisch allen
+    # Zeilen (1323 von 1332 an dieser Anlage). Bisher zeigte die Uebersicht
+    # trotzdem `verkauf.cent` an - das Ergebnis war eine Umsatzseite, auf der
+    # so gut wie jeder Kauf 0,00 EUR zeigte, obwohl `pruefe_verkauf` den Preis
+    # laengst kannte: bei Karte aus dem Beleg, bei Bar aus "was passt zu einem
+    # eingestellten Preis". Der Wert wurde berechnet und dann verworfen (F-051).
+    betrag_ermittelt_cent: int = 0
 
     def as_dict(self) -> dict:
         return {
             "zeit": self.verkauf.zeit.isoformat(),
             "foto": self.verkauf.foto,
             "bildnummer": self.verkauf.bildnummer,
-            "betrag_cent": self.verkauf.cent,
+            "betrag_cent": self.betrag_ermittelt_cent,
             "zahlungsart": self.zahlungsart,
             "eingeworfen_cent": self.eingeworfen_cent,
             "ausgezahlt_cent": self.ausgezahlt_cent,
@@ -372,10 +386,55 @@ _DATEINAME_ZEIT = re.compile(
 )
 
 # Vorgaenge des Terminals, die kein Verkauf sind.
+#
+# Bewusst eng: "tagesabschluss erfolgt" statt nur "tagesabschluss", weil sonst
+# der Wortteil "Kassenschnitt" in "F0h (240) Offener Kassenschnitt vorhanden"
+# mitgetroffen haette - das ist die Warnung EINER ZAHLUNG, kein Tagesabschluss
+# (F-051, im ersten Anlauf selbst uebersehen). "Offen" und "erfolgt" schliessen
+# sich aus, aber nur, wenn man beide Woerter auch wirklich verlangt.
 _VERWALTUNG = re.compile(
-    r"tagesabschluss|kassenschnitt|diagnose|abmeldung|anmeldung|initialisierung",
+    r"tagesabschluss\s*(erfolgt|:)|kassenschnitt\s*erfolgt"
+    r"|diagnose|abmeldung|anmeldung|initialisierung",
     re.IGNORECASE,
 )
+
+# Formulierungen, die eine ECHTE Ablehnung bedeuten - im Unterschied zu einem
+# Hinweis, der neben einer trotzdem gebuchten Zahlung steht (F-051).
+_ABGELEHNT = re.compile(
+    r"abgelehnt|storniert|abgebrochen|nicht erm(ä|ae)chtigt|ung(ü|ue)ltige? karte"
+    r"|kein netz|keine verbindung|timeout|karte entfernt",
+    re.IGNORECASE,
+)
+
+
+def _wirkt_gebucht(werte: dict[str, str], cent: int, verwaltung: bool) -> bool:
+    """Sieht diese Zahlung nach einer echten Buchung aus, auch wenn der
+    Ergebnis-Code nicht "0" ist?
+
+    Der Anlass (F-051): ein Testkauf ueber 0,02 EUR kam mit `Ergebnis=999`
+    ("Offener Kassenschnitt vorhanden") zurueck - unsere bisherige Pruefung
+    (`Ergebnis == "0"`) haette das als nicht erfolgreich verworfen. Der
+    anschliessende Tagesabschluss desselben Terminals bestaetigte aber
+    "3 Zahlungen, 0,05 EUR" fuer genau diesen Beleg-Bereich: das Geld WAR
+    abgebucht, der Code beschreibt nur einen offenen Vorgang beim Kassieren,
+    keine Ablehnung.
+    
+    Deshalb zaehlt eine Zahlung auch ohne `Ergebnis == "0"` als gebucht, wenn
+    sie die Kennzeichen eines echten Belegs traegt - Kartennummer, Belegnummer,
+    ein Betrag - UND der Text keine der bekannten Ablehnungs-Formulierungen
+    enthaelt.
+    """
+    if verwaltung or cent <= 0:
+        return False
+    text = werte.get("fromzvt.ergebnistext", "")
+    if _ABGELEHNT.search(text):
+        return False
+    pan = werte.get("fromzvt.pan", "").strip()
+    try:
+        beleg_ok = int(werte.get("fromzvt.belegnr", "0").strip() or "0") > 0
+    except ValueError:
+        beleg_ok = False
+    return bool(pan) and beleg_ok
 
 
 def lies_kartenzahlungen(muster: str, seit: datetime | None = None) -> list[Kartenzahlung]:
@@ -407,27 +466,44 @@ def lies_kartenzahlungen(muster: str, seit: datetime | None = None) -> list[Kart
 
         ergebnis = werte.get("fromzvt.ergebnis", "")
         text = werte.get("fromzvt.ergebnistext", "")
+        # Zweites, verlaesslicheres Merkmal: das Terminal traegt den
+        # Vorgangstyp selbst ein. "2" war in jeder beobachteten Datei ein
+        # Tagesabschluss - zusaetzlich zur Wortsuche, nicht statt ihr, falls
+        # ein anderes Terminal-Modell den Text anders formuliert.
+        ist_tagesabschluss_funktion = werte.get("tozvt.funktion", "").strip() == "2"
         # Der Automat fordert den Betrag an; das Terminal meldet ihn zurueck.
         # Bei Abbruch steht dort 0 - dann zaehlt der angeforderte Betrag als
         # das, was versucht wurde.
-        betrag = werte.get("fromzvt.betrag") or werte.get("tozvt.betrag") or "0"
-        try:
-            cent = int(betrag)
-        except ValueError:
-            cent = 0
+        # Bei Abbruch steht in [FromZvt] haeufig "0", selbst wenn die Anfrage
+        # in [ToZvt] einen echten Betrag nannte UND der Text einen belegten
+        # Umsatz beschreibt (F-051: "EUR 0,02" im Klartext, FromZvt.Betrag=0).
+        # Deshalb gilt die Antwort nur, wenn sie wirklich > 0 ist; sonst
+        # zaehlt, was angefordert wurde.
+        def _cent_aus(schluessel: str) -> int:
+            roh = werte.get(schluessel, "").strip()
+            try:
+                return int(roh) if roh else 0
+            except ValueError:
+                return 0
+        cent = _cent_aus("fromzvt.betrag")
+        if cent <= 0:
+            cent = _cent_aus("tozvt.betrag")
 
         # Ein Tagesabschluss oder Kassenschnitt meldet ebenfalls "Ergebnis=0",
         # ist aber KEIN Verkauf - er fasst nur den Tag zusammen. Ohne diese
         # Unterscheidung waeren in den echten Daten mehrere Abschluesse als
         # Kartenzahlungen gezaehlt worden, samt ihrer Tagessumme.
-        verwaltung = bool(_VERWALTUNG.search(text))
+        verwaltung = ist_tagesabschluss_funktion or bool(_VERWALTUNG.search(text))
+        ergebnis_ok = ergebnis.strip() == "0" and cent > 0 and not verwaltung
+        gebucht = ergebnis_ok or _wirkt_gebucht(werte, cent, verwaltung)
 
         zahlungen.append(Kartenzahlung(
             zeit=zeit,
             cent=cent,
-            erfolgreich=ergebnis.strip() == "0" and cent > 0 and not verwaltung,
+            erfolgreich=gebucht,
             ergebnis=text or ergebnis,
             belegnr=werte.get("fromzvt.belegnr", ""),
+            unsicher=gebucht and not ergebnis_ok,
         ))
     zahlungen.sort(key=lambda z: z.zeit)
     return zahlungen
@@ -632,12 +708,20 @@ def pruefe_verkauf(
     )
 
     if karte is not None and eingeworfen == 0:
+        hinweis = f"Beleg {karte.belegnr}" if karte.belegnr else ""
+        if karte.unsicher:
+            # Der Ergebnis-Code war nicht "0", die Zahlung sieht aber gebucht
+            # aus - Kartennummer, Belegnummer und Betrag stimmen (F-051). Das
+            # gehoert gesagt, damit jemand mit Kontoauszug gegenpruefen kann.
+            zusatz = "Ergebniscode weicht ab, Zahlung wirkt aber gebucht"
+            hinweis = f"{hinweis} - {zusatz}" if hinweis else zusatz
         return Zahlungsbefund(
             verkauf=verkauf, zahlungsart="karte",
             eingeworfen_cent=0, ausgezahlt_cent=0,
             erwartetes_wechselgeld_cent=0, abweichung_cent=0,
-            sicher=True,
-            hinweis=f"Beleg {karte.belegnr}" if karte.belegnr else "",
+            sicher=not karte.unsicher,
+            hinweis=hinweis,
+            betrag_ermittelt_cent=karte.cent,
         )
 
     if eingeworfen == 0:
@@ -713,10 +797,88 @@ def pruefe_verkauf(
 
     return Zahlungsbefund(
         verkauf=verkauf, zahlungsart="bar",
+        betrag_ermittelt_cent=preis,
         eingeworfen_cent=eingeworfen, ausgezahlt_cent=ausgezahlt,
         erwartetes_wechselgeld_cent=erwartet, abweichung_cent=abweichung,
         sicher=sicher, hinweis=hinweis,
     )
+
+
+@dataclass(frozen=True)
+class UnzugeordnetesEreignis:
+    """Geld, das keinem einzigen Verkauf zugeordnet werden kann - nicht weil
+    die Zahlungsart unklar ist, sondern weil in der Naehe gar kein Verkauf
+    aus `Statistic.txt` steht, dem es gehoeren koennte.
+
+    Der Anlass (F-051): am 19.08.2026 wurden 2,00 EUR und 0,20 EUR eingeworfen,
+    aber wegen einer im selben Moment entnommenen Wechselgeldroehre nicht
+    ausgezahlt. Weil danach kein Verkauf folgte, tauchte der Vorgang in keiner
+    Auswertung auf - das Geld war da, aber fuer uns unsichtbar. `pruefe_alle`
+    geht die Verkaeufe durch und fragt "wie wurde bezahlt"; das hier geht die
+    EREIGNISSE durch und fragt die Gegenfrage: "gehoert das ueberhaupt zu
+    etwas?"
+    """
+    zeit: datetime
+    art: str          # "muenze_ein" | "muenze_aus_fehlgeschlagen" | "karte"
+    cent: int
+    hinweis: str
+
+    def as_dict(self) -> dict:
+        return {
+            "zeit": self.zeit.isoformat(), "art": self.art,
+            "cent": self.cent, "hinweis": self.hinweis,
+        }
+
+
+def finde_unzugeordnete_ereignisse(
+    verkaeufe: list[Verkauf],
+    muenzereignisse: list[Muenzereignis],
+    kartenzahlungen: list[Kartenzahlung],
+) -> list[UnzugeordnetesEreignis]:
+    """Geldbewegungen, die zu keinem Verkauf in der Naehe gehoeren."""
+    fenster: list[tuple[datetime, datetime]] = []
+    for i, v in enumerate(verkaeufe):
+        von = v.zeit - FENSTER_VOR
+        bis = v.zeit + FENSTER_NACH
+        if i > 0:
+            von = max(von, verkaeufe[i - 1].zeit)
+        if i + 1 < len(verkaeufe):
+            bis = min(bis, verkaeufe[i + 1].zeit)
+        fenster.append((von, bis))
+    fenster.sort()
+
+    def _gehoert_zu_verkauf(zeit: datetime) -> bool:
+        # Eine einfache Schleife statt bisect: die Fenster ueberlappen sich
+        # nicht, aber sie sind auch nicht luecken- oder ueberschneidungsfrei
+        # sortierbar genug, um sich auf eine einzelne bisect-Grenze zu
+        # verlassen. Bei der ueblichen Anzahl Ereignisse pro Herzschlag faellt
+        # das nicht auf.
+        return any(von <= zeit <= bis for von, bis in fenster)
+
+    ereignisse: list[UnzugeordnetesEreignis] = []
+    for e in muenzereignisse:
+        if _gehoert_zu_verkauf(e.zeit):
+            continue
+        if e.art == "ein":
+            ereignisse.append(UnzugeordnetesEreignis(
+                zeit=e.zeit, art="muenze_ein", cent=e.cent,
+                hinweis="Münze angenommen, aber kein Verkauf in der Nähe",
+            ))
+        elif e.fehlgeschlagen:
+            ereignisse.append(UnzugeordnetesEreignis(
+                zeit=e.zeit, art="muenze_aus_fehlgeschlagen", cent=e.angefordert,
+                hinweis="Auszahlung angefordert, aber fehlgeschlagen - und keinem Verkauf zuzuordnen",
+            ))
+    for k in kartenzahlungen:
+        if not k.erfolgreich or _gehoert_zu_verkauf(k.zeit):
+            continue
+        beleg = f" (Beleg {k.belegnr})" if k.belegnr else ""
+        ereignisse.append(UnzugeordnetesEreignis(
+            zeit=k.zeit, art="karte", cent=k.cent,
+            hinweis=f"Kartenzahlung gebucht, aber kein Verkauf in der Nähe{beleg}",
+        ))
+    ereignisse.sort(key=lambda e: e.zeit, reverse=True)
+    return ereignisse
 
 
 def pruefe_alle(
@@ -762,6 +924,9 @@ class Zahlungsuebersicht:
     # wurde und wie viel Wechselgeld heraus kam. Bewusst begrenzt: die Liste
     # reist im Heartbeat mit und soll ihn nicht aufblaehen.
     letzte: list[Zahlungsbefund] = field(default_factory=list)
+    # Geld, das zu keinem Verkauf gehoert (F-051) - siehe
+    # finde_unzugeordnete_ereignisse. Ebenfalls begrenzt.
+    unzugeordnet: list[UnzugeordnetesEreignis] = field(default_factory=list)
 
     @property
     def gesamt_anzahl(self) -> int:
@@ -797,6 +962,7 @@ class Zahlungsuebersicht:
             "karte_anteil": round(self.karte_anzahl / erkannt, 3) if aussagekraeftig else None,
             "auffaellig": [b.as_dict() for b in self.auffaellig],
             "letzte": [b.as_dict() for b in self.letzte],
+            "unzugeordnet": [e.as_dict() for e in self.unzugeordnet],
         }
 
 
@@ -896,6 +1062,11 @@ def read_payments(settings) -> dict:
         uebersicht = fasse_zusammen(
             pruefe_alle(verkaeufe, muenzen, karten, moegliche_preise=preise)
         )
+        # Geld ohne Verkauf in der Naehe (F-051) - unabhaengig von den
+        # einzelnen Verkaufs-Befunden, deshalb ein eigener Durchlauf.
+        uebersicht.unzugeordnet = finde_unzugeordnete_ereignisse(
+            verkaeufe, muenzen, karten,
+        )[:20]
         ergebnis["payments"] = uebersicht.as_dict()
         ergebnis["payments_days"] = settings.payment_days
         ergebnis["prices_cent"] = preise
@@ -908,10 +1079,10 @@ def fasse_zusammen(befunde: list[Zahlungsbefund]) -> Zahlungsuebersicht:
     for befund in befunde:
         if befund.zahlungsart == "bar":
             uebersicht.bar_anzahl += 1
-            uebersicht.bar_cent += befund.verkauf.cent
+            uebersicht.bar_cent += befund.betrag_ermittelt_cent
         elif befund.zahlungsart == "karte":
             uebersicht.karte_anzahl += 1
-            uebersicht.karte_cent += befund.verkauf.cent
+            uebersicht.karte_cent += befund.betrag_ermittelt_cent
         else:
             uebersicht.unbekannt_anzahl += 1
         # Nur nachgerechnete Faelle koennen auffaellig sein. Eine Abweichung bei
