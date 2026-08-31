@@ -34,18 +34,27 @@ Keine davon wurde fuer uns gebaut; alle sind Nebenprodukte fremder Programme.
     Die Zahl hinter ``=>`` ist, was tatsaechlich heraus kam. ``=> 0`` heisst:
     angefordert, aber nichts ausgezahlt - der Gast bekam zu wenig zurueck.
 
-``ZvtLog_<zeitpunkt>.txt``
+``ZvtLog_<zeitpunkt>.txt``  (EasyZvt-Test)
     Eine INI-Datei je Kartenzahlung, mit angefordertem Betrag, Ergebniscode und
     Belegnummer. Der Zeitpunkt steht im Dateinamen.
+
+``ZVT-YYYY-MM-0001-HDL.LOG``  (hobex / GUB - das echte Imster Terminal)
+    EINE Monatsdatei mit einem Haendlerbeleg-Block je Zahlung, jeder Block
+    beginnt mit einer Schreibzeit-Zeile ``TT.MM.JJ HH:MM:SS.mmm``. Verkauf =
+    Block mit ``HAENDLERBELEG`` + ``KAUF`` + ``Genehmigt`` ohne Ablehnung;
+    darin ``Karte: VISA``, ``EUR: 5,00``, ``Beleg#  : H150001``. `lies_
+    kartenzahlungen` erkennt selbst, welches der beiden Formate vorliegt.
 
 ``Statistic.txt``
     Je Verkauf eine Zeile::
 
         14.03.2026 12:00:06::C:\\liftpic\\fotos\\out\\00003.jpg::3||1||0,00
 
-    Zeitpunkt, Foto, dann Felder des Verkaufsprogramms. Das letzte Feld ist der
-    Betrag. Was die beiden davor genau bedeuten, ist nicht dokumentiert; sie
-    werden roh mitgefuehrt und nicht gedeutet.
+    Zeitpunkt, Foto, dann Felder des Verkaufsprogramms. Das mittlere Feld ist
+    das **Zahlart-Kennzeichen** (``2`` = Karte, ``1`` = Bar), das letzte der
+    Betrag (steht meist auf ``0,00``). Das Kennzeichen ist die verlaesslichste
+    Quelle - der Automat weiss ja, welchen Knopf der Gast gedrueckt hat; der
+    Zeitabgleich reichert dann nur noch Betrag/Kartenmarke/Beleg an.
 
 Die Grenze dieser Auswertung
 ----------------------------
@@ -132,6 +141,10 @@ class Kartenzahlung:
     # der Automat sich hier nicht zu 100 % sicher sein kann - der Mensch am
     # Kontoauszug schon.
     unsicher: bool = False
+    # Kartenmarke aus dem Beleg (VISA, MASTERCARD, MAESTRO, V PAY, …). Nur das
+    # hobex/GUB-Format ("HAENDLERBELEG") nennt sie; das aeltere EasyZvt-INI
+    # nicht - dann bleibt es None.
+    kartenmarke: str | None = None
 
 
 @dataclass(frozen=True)
@@ -147,6 +160,13 @@ class Verkauf:
     # des Fotos ist nicht der Kaufzeitpunkt - dazwischen liegt, wie lange der
     # Gast am Bildschirm stand.
     bildnummer: int | None = None
+    # Das Zahlart-Kennzeichen, das das Verkaufsprogramm selbst in Statistic.txt
+    # schreibt: mittleres ||-Feld. "2" = Karte, "1" = Bar (Muenzpruefer),
+    # "0"/None = nicht gesetzt. Das ist die verlaesslichste Quelle - der
+    # Automat weiss ja, welchen Zahlweg der Gast gewaehlt hat. Zeitfenster-
+    # Abgleich mit Muenz-/Kartenlog dient dann nur noch der Anreicherung
+    # (Betrag, Kartenmarke, Beleg) und der Wechselgeld-Kontrolle.
+    zahlart_flag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -170,6 +190,15 @@ class Zahlungsbefund:
     # laengst kannte: bei Karte aus dem Beleg, bei Bar aus "was passt zu einem
     # eingestellten Preis". Der Wert wurde berechnet und dann verworfen (F-051).
     betrag_ermittelt_cent: int = 0
+    # Kartenmarke und Belegnummer, wenn der Kauf einem Kartenbeleg zugeordnet
+    # werden konnte. Sonst None.
+    kartenmarke: str | None = None
+    beleg_nr: str | None = None
+    # Woher die Zahlungsart stammt - fuer die rueckverfolgbare Anzeige:
+    #   automat_flag              - Kennzeichen aus Statistic.txt (2/1)
+    #   automat_flag_ohne_beleg   - Kennzeichen sagt Karte, kein Beleg gefunden
+    #   zeitfenster               - kein Kennzeichen, ueber Zeitabgleich bestimmt
+    method_source: str = "zeitfenster"
 
     def as_dict(self) -> dict:
         return {
@@ -178,6 +207,9 @@ class Zahlungsbefund:
             "bildnummer": self.verkauf.bildnummer,
             "betrag_cent": self.betrag_ermittelt_cent,
             "zahlungsart": self.zahlungsart,
+            "kartenmarke": self.kartenmarke,
+            "beleg_nr": self.beleg_nr,
+            "method_source": self.method_source,
             "eingeworfen_cent": self.eingeworfen_cent,
             "ausgezahlt_cent": self.ausgezahlt_cent,
             "erwartetes_wechselgeld_cent": self.erwartetes_wechselgeld_cent,
@@ -437,8 +469,10 @@ def _wirkt_gebucht(werte: dict[str, str], cent: int, verwaltung: bool) -> bool:
     return bool(pan) and beleg_ok
 
 
-def lies_kartenzahlungen(muster: str, seit: datetime | None = None) -> list[Kartenzahlung]:
-    """Eine Kartenzahlung je ZvtLog-Datei."""
+def _lies_kartenzahlungen_easyzvt(
+    muster: str, seit: datetime | None = None,
+) -> list[Kartenzahlung]:
+    """EasyZvt-Test-Format: eine INI-Datei ``ZvtLog_<zeitpunkt>.txt`` je Zahlung."""
     zahlungen: list[Kartenzahlung] = []
     for treffer in glob.glob(muster):
         pfad = Path(treffer)
@@ -509,6 +543,140 @@ def lies_kartenzahlungen(muster: str, seit: datetime | None = None) -> list[Kart
     return zahlungen
 
 
+# --- hobex / GUB: ein Monats-Sammellog mit vielen Haendlerbelegen -----------
+#
+# Das echte Imster Terminal (hobex) schreibt NICHT je Zahlung eine Datei,
+# sondern eine grosse Monatsdatei ``ZVT-YYYY-MM-0001-HDL.LOG`` mit einem Block
+# je Beleg. Beispielblock:
+#
+#     01.08.26 09:43:48.634          <- Schreibzeitpunkt (Batch, ~6 min Versatz)
+#          Imster Bergbahnen
+#     ---------------------------
+#     01.08.2026         09:43:44    <- ECHTE Transaktionszeit (die hier zaehlt)
+#     0000569    0150      000001
+#            HAENDLERBELEG
+#     Beleg#  : H150001
+#     Karte: VISA
+#     KAUF
+#     SUMME
+#              EUR: 5,00
+#      Autorisierungscode:001H43
+#         Genehmigt 001H43
+#
+# Verkauf = Block mit HAENDLERBELEG + KAUF + "Genehmigt", ohne Ablehnung.
+_HDL_BLOCKSTART = re.compile(r"^\d{2}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2}\.\d+")
+_HDL_DATUMZEIT = re.compile(r"^(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2}:\d{2})\s*$")
+_HDL_SUMME = re.compile(r"EUR:\s*([\d.,]+)")
+_HDL_KARTE = re.compile(r"^Karte:\s*(.+?)\s*$")
+_HDL_BELEG = re.compile(r"^Beleg#\s*:\s*(\S+)")
+_HDL_AUTH = re.compile(r"Autorisierungscode:\s*(\S+)")
+# "HAENDLERBELEG" steht je nach Kodierung als HÄNDLERBELEG oder mit Mojibake da;
+# der ASCII-Kern reicht zum Erkennen.
+_HDL_MARKER = "NDLERBELEG"
+_HDL_ABGELEHNT = re.compile(
+    r"abgelehnt|zahlung fehlgeschlagen|abbruch|timeout"
+    r"|nicht unterst(ü|ue)tzt|nicht zugelassen|kommunikationsfehler",
+    re.IGNORECASE,
+)
+
+
+def _lies_kartenzahlungen_hobex(
+    muster: str, seit: datetime | None = None,
+) -> list[Kartenzahlung]:
+    """hobex/GUB-Format: Monats-Sammellog(s) mit vielen Haendlerbelegen."""
+    zahlungen: list[Kartenzahlung] = []
+    for treffer in sorted(glob.glob(muster)):
+        pfad = Path(treffer)
+        block: list[str] = []
+
+        def _blockauswerten(zeilen: list[str]) -> None:
+            text = "\n".join(zeilen)
+            if _HDL_MARKER not in text:
+                return
+            if not any(z.strip() == "KAUF" for z in zeilen):
+                return
+            if "Genehmigt" not in text or _HDL_ABGELEHNT.search(text):
+                return
+            zeit = None
+            for z in zeilen:
+                m = _HDL_DATUMZEIT.match(z.strip())
+                if m:
+                    try:
+                        zeit = datetime.strptime(
+                            m.group(1) + " " + m.group(2), "%d.%m.%Y %H:%M:%S",
+                        )
+                    except ValueError:
+                        zeit = None
+                    break
+            if zeit is None or (seit and zeit < seit):
+                return
+            betrag = None
+            marke = beleg = None
+            for z in zeilen:
+                s = z.strip()
+                if betrag is None and "SUMME" not in s:
+                    mm = _HDL_SUMME.search(s)
+                    if mm:
+                        betrag = _cent(mm.group(1))
+                mk = _HDL_KARTE.match(s)
+                if mk:
+                    marke = mk.group(1).upper()
+                mb = _HDL_BELEG.match(s)
+                if mb:
+                    beleg = mb.group(1)
+            zahlungen.append(Kartenzahlung(
+                zeit=zeit,
+                cent=betrag or 0,
+                erfolgreich=True,
+                ergebnis="Genehmigt",
+                belegnr=beleg or "",
+                unsicher=False,
+                kartenmarke=marke,
+            ))
+
+        for zeile in _lies(pfad):
+            if _HDL_BLOCKSTART.match(zeile):
+                if block:
+                    _blockauswerten(block)
+                block = [zeile]
+            elif block:
+                block.append(zeile)
+        if block:
+            _blockauswerten(block)
+
+    zahlungen.sort(key=lambda z: z.zeit)
+    return zahlungen
+
+
+def lies_kartenzahlungen(
+    muster: str, seit: datetime | None = None,
+) -> list[Kartenzahlung]:
+    """Kartenbelege lesen - beide bekannten Formate.
+
+    Auswahl je Datei: enthaelt sie einen Haendlerbeleg-Block ("...NDLERBELEG"),
+    ist es das hobex/GUB-Sammellog; sonst das EasyZvt-INI (``ZvtLog_*``).
+    """
+    hobex_dateien: list[str] = []
+    easyzvt = False
+    for treffer in glob.glob(muster):
+        try:
+            kopf = Path(treffer).read_bytes()[:4096].decode("latin-1", "replace")
+        except OSError:
+            continue
+        if _HDL_MARKER in kopf or Path(treffer).name.upper().startswith("ZVT-"):
+            hobex_dateien.append(treffer)
+        else:
+            easyzvt = True
+
+    zahlungen: list[Kartenzahlung] = []
+    if hobex_dateien:
+        zahlungen += _lies_kartenzahlungen_hobex(muster, seit)
+    if easyzvt or not hobex_dateien:
+        zahlungen += _lies_kartenzahlungen_easyzvt(muster, seit)
+    zahlungen.sort(key=lambda z: z.zeit)
+    return zahlungen
+
+
 _BILDNUMMER = re.compile(r"(\d+)\s*\.\w+$")
 
 
@@ -550,9 +718,15 @@ def lies_verkaeufe(pfad: Path, seit: datetime | None = None) -> list[Verkauf]:
         cent = None
         if felder and _BETRAG.match(felder[-1]):
             cent = _cent(felder[-1])
+        # Mittleres ||-Feld: das Zahlart-Kennzeichen des Verkaufsprogramms.
+        # Neu-Format ist "<druckprofil>||<zahlart>||<betrag>", also felder[1].
+        # "2" = Karte, "1" = Bar, "0"/sonst = nicht gesetzt.
+        flag = None
+        if len(felder) >= 3 and felder[1].strip() in ("1", "2", "0"):
+            flag = felder[1].strip()
         verkaeufe.append(Verkauf(
             zeit=zeit, foto=foto, cent=cent or 0, rohfelder=felder,
-            bildnummer=_bildnummer(foto),
+            bildnummer=_bildnummer(foto), zahlart_flag=flag,
         ))
     verkaeufe.sort(key=lambda v: v.zeit)
     return verkaeufe
@@ -707,6 +881,55 @@ def pruefe_verkauf(
         None,
     )
 
+    # Das Verkaufsprogramm hat selbst hingeschrieben, wie gezahlt wurde
+    # (Statistic.txt, mittleres ||-Feld). Das ist verlaesslicher als jeder
+    # Zeitabgleich - der Automat weiss ja, welchen Knopf der Gast gedrueckt
+    # hat. Der Zeitabgleich dient dann nur noch der Anreicherung (Betrag,
+    # Kartenmarke, Beleg) und der Wechselgeld-Kontrolle.
+    flag = verkauf.zahlart_flag
+
+    def _fixpreis() -> int:
+        if verkauf.cent > 0:
+            return verkauf.cent
+        eindeutig = set(moegliche_preise or [])
+        return next(iter(eindeutig)) if len(eindeutig) == 1 else 0
+
+    if flag == "2":
+        if karte is not None:
+            hinweis = f"Beleg {karte.belegnr}" if karte.belegnr else ""
+            if karte.unsicher:
+                zusatz = "Ergebniscode weicht ab, Zahlung wirkt aber gebucht"
+                hinweis = f"{hinweis} - {zusatz}" if hinweis else zusatz
+            return Zahlungsbefund(
+                verkauf=verkauf, zahlungsart="karte",
+                eingeworfen_cent=0, ausgezahlt_cent=0,
+                erwartetes_wechselgeld_cent=0, abweichung_cent=0,
+                sicher=not karte.unsicher, hinweis=hinweis,
+                betrag_ermittelt_cent=karte.cent or _fixpreis(),
+                kartenmarke=karte.kartenmarke, beleg_nr=karte.belegnr or None,
+                method_source="automat_flag",
+            )
+        return Zahlungsbefund(
+            verkauf=verkauf, zahlungsart="karte",
+            eingeworfen_cent=0, ausgezahlt_cent=0,
+            erwartetes_wechselgeld_cent=0, abweichung_cent=0,
+            sicher=False,
+            hinweis="Automat meldet Karte, aber kein Beleg im Zeitfenster gefunden",
+            betrag_ermittelt_cent=_fixpreis(),
+            method_source="automat_flag_ohne_beleg",
+        )
+
+    if flag == "1" and eingeworfen == 0:
+        return Zahlungsbefund(
+            verkauf=verkauf, zahlungsart="bar",
+            eingeworfen_cent=0, ausgezahlt_cent=ausgezahlt,
+            erwartetes_wechselgeld_cent=0, abweichung_cent=0,
+            sicher=False,
+            hinweis="Automat meldet Bar, aber kein Münz-Ereignis im Zeitfenster",
+            betrag_ermittelt_cent=_fixpreis(),
+            method_source="automat_flag",
+        )
+
     if karte is not None and eingeworfen == 0:
         hinweis = f"Beleg {karte.belegnr}" if karte.belegnr else ""
         if karte.unsicher:
@@ -722,6 +945,8 @@ def pruefe_verkauf(
             sicher=not karte.unsicher,
             hinweis=hinweis,
             betrag_ermittelt_cent=karte.cent,
+            kartenmarke=karte.kartenmarke, beleg_nr=karte.belegnr or None,
+            method_source="automat_flag" if flag == "2" else "zeitfenster",
         )
 
     if eingeworfen == 0:
@@ -801,6 +1026,7 @@ def pruefe_verkauf(
         eingeworfen_cent=eingeworfen, ausgezahlt_cent=ausgezahlt,
         erwartetes_wechselgeld_cent=erwartet, abweichung_cent=abweichung,
         sicher=sicher, hinweis=hinweis,
+        method_source="automat_flag" if flag == "1" else "zeitfenster",
     )
 
 
@@ -1059,9 +1285,8 @@ def read_payments(settings) -> dict:
     if verkaeufe:
         from .viewer_settings import read_viewer_prices
         preise = read_viewer_prices(settings.viewer_settings_xml)
-        uebersicht = fasse_zusammen(
-            pruefe_alle(verkaeufe, muenzen, karten, moegliche_preise=preise)
-        )
+        befunde = pruefe_alle(verkaeufe, muenzen, karten, moegliche_preise=preise)
+        uebersicht = fasse_zusammen(befunde)
         # Geld ohne Verkauf in der Naehe (F-051) - unabhaengig von den
         # einzelnen Verkaufs-Befunden, deshalb ein eigener Durchlauf.
         uebersicht.unzugeordnet = finde_unzugeordnete_ereignisse(
@@ -1070,6 +1295,36 @@ def read_payments(settings) -> dict:
         ergebnis["payments"] = uebersicht.as_dict()
         ergebnis["payments_days"] = settings.payment_days
         ergebnis["prices_cent"] = preise
+
+        # Zeilen fuer die dauerhafte Server-Tabelle machine_sale_payments: je
+        # Verkauf eine Zeile mit Zahlungsart + (bei Karte) Beleg-Details. Der
+        # Herzschlag-Endpunkt schreibt sie dort hin und dedupt selbst; deshalb
+        # reicht es, hier die der letzten ~45 Minuten mitzuschicken - bei einem
+        # Herzschlag pro Minute ueberlappt das reichlich, bleibt aber klein.
+        _grenze = datetime.now() - timedelta(minutes=45)
+        ortszeit = datetime.now().astimezone().tzinfo
+        ergebnis["sale_payments"] = [
+            {
+                "sold_local": b.verkauf.zeit.isoformat(sep=" "),
+                "sold_at": b.verkauf.zeit.replace(tzinfo=ortszeit).isoformat(),
+                "bild_nr": (str(b.verkauf.bildnummer)
+                            if b.verkauf.bildnummer is not None else None),
+                "print_count": (int(b.verkauf.rohfelder[0])
+                                if b.verkauf.rohfelder
+                                and b.verkauf.rohfelder[0].strip().isdigit()
+                                else None),
+                "method": b.zahlungsart,
+                "method_source": b.method_source,
+                "amount_cents": b.betrag_ermittelt_cent or None,
+                "card_scheme": b.kartenmarke,
+                "receipt_no": b.beleg_nr,
+                "auth_code": None,
+                "pan_masked": None,
+                "source_file": "agent",
+            }
+            for b in befunde
+            if b.verkauf.zeit >= _grenze
+        ]
 
     return ergebnis
 
