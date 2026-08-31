@@ -714,3 +714,138 @@ def test_karte_betrag_faellt_auf_angefragten_betrag_zurueck(tmp_path: Path):
     zahlungen = lies_kartenzahlungen(str(tmp_path / "ZvtLog_*.txt"))
     assert zahlungen[0].cent == 2
     assert zahlungen[0].erfolgreich is True
+
+
+# ---------------------------------------------- hobex / GUB-Format + Zahlart-Flag
+
+_HDL_BLOCK = """01.08.26 09:43:48.634
+     Imster Bergbahnen
+---------------------------
+01.08.2026         09:43:44
+0000569    0150      000001
+       HÄNDLERBELEG
+---------------------------
+Terminal: AH161407
+Beleg#  : H150001
+L:************4405
+Karte: VISA
+KAUF
+ 
+SUMME
+         EUR: 5,00
+ 
+ Autorisierungscode:001H43
+    Genehmigt 001H43
+ 
+02.08.26 10:10:10.000
+02.08.2026         10:09:55
+       HÄNDLERBELEG
+Beleg#  : H150002
+Karte: MASTERCARD
+KAUF
+SUMME
+         EUR: 5,00
+    Genehmigt 771234
+ 
+03.08.26 11:00:00.000
+03.08.2026         10:58:00
+       HÄNDLERBELEG
+Beleg#  : H150003
+Karte: MAESTRO
+KAUF
+SUMME
+         EUR: 5,00
+Abbruch durch Timeout oder Abbruchtaste
+"""
+
+
+def test_hobex_haendlerbeleg_wird_gelesen(tmp_path: Path):
+    (tmp_path / "ZVT-2026-08-0001-HDL.LOG").write_text(_HDL_BLOCK, encoding="utf-8")
+    zahlungen = lies_kartenzahlungen(str(tmp_path / "ZVT-*-HDL.LOG"))
+    # Zwei genehmigte Käufe, der abgebrochene zählt nicht.
+    assert len(zahlungen) == 2
+    assert zahlungen[0].zeit == datetime(2026, 8, 1, 9, 43, 44)
+    assert zahlungen[0].cent == 500
+    assert zahlungen[0].kartenmarke == "VISA"
+    assert zahlungen[0].belegnr == "H150001"
+    assert zahlungen[0].erfolgreich is True
+    assert zahlungen[1].kartenmarke == "MASTERCARD"
+
+
+def test_hobex_auch_in_cp1252(tmp_path: Path):
+    (tmp_path / "ZVT-2026-08-0001-HDL.LOG").write_bytes(
+        _HDL_BLOCK.encode("cp1252")
+    )
+    zahlungen = lies_kartenzahlungen(str(tmp_path / "ZVT-*-HDL.LOG"))
+    assert len(zahlungen) == 2
+    assert zahlungen[0].kartenmarke == "VISA"
+
+
+def test_statistic_zahlart_flag_wird_gelesen(tmp_path: Path):
+    datei = tmp_path / "Statistic.txt"
+    datei.write_text(
+        "01.08.2026 09:43:50::C:\\liftpic\\fotos\\55947.jpg::3||2||0,00\n"
+        "01.08.2026 11:31:40::C:\\liftpic\\fotos\\56043.jpg::3||1||0,00\n"
+        "15.08.2025 10:06:25::C:\\liftpic\\fotos\\out\\00003.jpg::3\n",
+        encoding="utf-8",
+    )
+    verkaeufe = lies_verkaeufe(datei)
+    flags = {v.bildnummer: v.zahlart_flag for v in verkaeufe}
+    assert flags[55947] == "2"
+    assert flags[56043] == "1"
+    assert flags[3] is None   # Alt-Format ohne Feld
+
+
+def test_flag_karte_mit_beleg_ergibt_kartenmarke():
+    verkauf = Verkauf(
+        zeit=z("01.08.2026 09:43:50"), foto="55947.jpg", cent=0,
+        rohfelder=("3", "2", "0,00"), bildnummer=55947, zahlart_flag="2",
+    )
+    karte = Kartenzahlung(
+        zeit=z("01.08.2026 09:43:44"), cent=500, erfolgreich=True,
+        ergebnis="Genehmigt", belegnr="H150001", kartenmarke="VISA",
+    )
+    befund = pruefe_verkauf(verkauf, [], [karte])
+    assert befund.zahlungsart == "karte"
+    assert befund.kartenmarke == "VISA"
+    assert befund.beleg_nr == "H150001"
+    assert befund.betrag_ermittelt_cent == 500
+    assert befund.method_source == "automat_flag"
+
+
+def test_flag_karte_ohne_beleg_bleibt_karte():
+    verkauf = Verkauf(
+        zeit=z("01.08.2026 09:43:50"), foto="55947.jpg", cent=0,
+        rohfelder=("3", "2", "0,00"), bildnummer=55947, zahlart_flag="2",
+    )
+    befund = pruefe_verkauf(verkauf, [], [], moegliche_preise=[500])
+    assert befund.zahlungsart == "karte"
+    assert befund.method_source == "automat_flag_ohne_beleg"
+    assert befund.betrag_ermittelt_cent == 500
+    assert befund.sicher is False
+
+
+def test_flag_bar_ohne_muenzereignis_bleibt_bar():
+    verkauf = Verkauf(
+        zeit=z("01.08.2026 11:31:40"), foto="56043.jpg", cent=0,
+        rohfelder=("3", "1", "0,00"), bildnummer=56043, zahlart_flag="1",
+    )
+    befund = pruefe_verkauf(verkauf, [], [], moegliche_preise=[500])
+    assert befund.zahlungsart == "bar"
+    assert befund.method_source == "automat_flag"
+    assert befund.betrag_ermittelt_cent == 500
+
+
+def test_as_dict_hat_die_neuen_felder():
+    verkauf = Verkauf(
+        zeit=z("01.08.2026 09:43:50"), foto="55947.jpg", cent=0,
+        bildnummer=55947, zahlart_flag="2",
+    )
+    karte = Kartenzahlung(
+        zeit=z("01.08.2026 09:43:44"), cent=500, erfolgreich=True,
+        ergebnis="Genehmigt", belegnr="H150001", kartenmarke="VISA",
+    )
+    d = pruefe_verkauf(verkauf, [], [karte]).as_dict()
+    assert d["kartenmarke"] == "VISA"
+    assert d["beleg_nr"] == "H150001"
+    assert d["method_source"] == "automat_flag"
