@@ -190,24 +190,58 @@ Deno.serve(async (req) => {
           .eq("machine_id", auth.machineId)
           .in("receipt_no", [...new Set(withReceipt.map((r) => r.receipt_no as string))]);
         const seen = new Set((existing ?? []).map((e: { receipt_no: string }) => e.receipt_no));
-        for (const r of withReceipt) if (!seen.has(r.receipt_no as string)) toInsert.push(r);
+        for (const r of withReceipt) {
+          if (seen.has(r.receipt_no as string)) continue;
+          // Gab es den Kauf schon als Platzhalter ohne Beleg (Beleg kam später),
+          // wird diese Zeile aufgewertet statt ein zweiter Kauf angelegt.
+          if (r.bild_nr != null) {
+            const { data: upgraded } = await supabase
+              .from("machine_sale_payments")
+              .update({
+                method_source: r.method_source,
+                amount_cents: r.amount_cents,
+                card_scheme: r.card_scheme,
+                receipt_no: r.receipt_no,
+                auth_code: r.auth_code,
+                pan_masked: r.pan_masked,
+                match_delta_s: r.match_delta_s,
+              })
+              .eq("machine_id", auth.machineId)
+              .eq("sold_local", String(r.sold_local).replace("T", " ").slice(0, 19))
+              .eq("bild_nr", r.bild_nr)
+              .eq("method", r.method)
+              .is("receipt_no", null)
+              .select("id");
+            if (upgraded && upgraded.length > 0) continue;
+          }
+          toInsert.push(r);
+        }
       }
       if (withoutReceipt.length > 0) {
-        const locals = [...new Set(withoutReceipt.map((r) => r.sold_local))];
+        // PostgREST liefert sold_local als "2026-09-24T16:53:31", der Agent
+        // schickt "2026-09-24 16:53:31". Ohne Normalisierung passte der
+        // Schlüssel nie, und jede Zeile wurde bei jedem Herzschlag neu
+        // eingefügt. Deshalb beide Seiten auf dieselbe Form bringen.
+        const norm = (v: unknown) => String(v).replace("T", " ").slice(0, 19);
+        const locals = [...new Set(withoutReceipt.map((r) => norm(r.sold_local)))];
         const { data: existing } = await supabase
           .from("machine_sale_payments")
           .select("sold_local, bild_nr, method")
           .eq("machine_id", auth.machineId)
-          .is("receipt_no", null)
-          .in("sold_local", locals);
+          .in("sold_local", locals)
+          .limit(10000);
         const seen = new Set(
           (existing ?? []).map(
-            (e: Record<string, unknown>) => `${e.sold_local}|${e.bild_nr ?? ""}|${e.method}`,
+            (e: Record<string, unknown>) =>
+              `${norm(e.sold_local)}|${e.bild_nr ?? ""}|${e.method}`,
           ),
         );
         for (const r of withoutReceipt) {
-          const k = `${r.sold_local}|${r.bild_nr ?? ""}|${r.method}`;
-          if (!seen.has(k)) toInsert.push(r);
+          const k = `${norm(r.sold_local)}|${r.bild_nr ?? ""}|${r.method}`;
+          if (!seen.has(k)) {
+            seen.add(k);
+            toInsert.push(r);
+          }
         }
       }
 
