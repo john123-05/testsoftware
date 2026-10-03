@@ -94,6 +94,7 @@ def sammle(settings: Settings) -> list[str]:
         ("Rohbilder (RAW_DIR)", settings.raw_dir),
         ("Verarbeitet", settings.processed_dir),
         ("QR-Ausgabe", settings.qrcode_dir),
+        ("QR-Ausgabe 2", settings.qrcode_dir_2),
         ("Statistik", settings.statistic_file),
         ("Druckzähler", settings.print_count_file),
         ("Settings.xml", settings.viewer_settings_xml),

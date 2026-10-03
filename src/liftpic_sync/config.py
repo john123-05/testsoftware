@@ -150,6 +150,13 @@ class Settings:
     operational_log_tail_lines: int = 80
     operational_log_stale_minutes: int = 240
     operational_log_defunct_minutes: int = 2880
+    # Zweiter "verkauft"-Ordner, zusaetzlich zu qrcode_dir. Fuer Automaten mit
+    # zwei unabhaengigen Kamera-PCs, deren Verkaufssoftware getrennte Ordner
+    # befuellt (z.B. Plose: qrcode + qrcode2), statt alles in einen zu legen.
+    # Leer/nicht gesetzt (Vorgabe) aendert nichts am bisherigen Verhalten - nur
+    # ein Automat mit QRCODE_DIR_2 in der .env bekommt den zweiten Ordner
+    # ueberhaupt gescannt.
+    qrcode_dir_2: Path | None = None
 
     @classmethod
     def from_env_file(cls, env_path: str | Path | None = None) -> "Settings":
@@ -160,6 +167,7 @@ class Settings:
 
         webout = _get(values, "WEBOUT_DIR", r"C:\liftpic\fotos\webout").strip()
         qrcode = _get(values, "QRCODE_DIR", r"C:\liftpic\fotos\qrcode").strip()
+        qrcode2 = _get(values, "QRCODE_DIR_2", "").strip()
         statistic_file = _get(values, "STATISTIC_FILE", r"C:\liftpic\samuel_neu\Statistic.txt").strip()
         print_count_file = _get(values, "PRINT_COUNT_FILE", r"C:\liftpic\samuel_neu\PrintCount.txt").strip()
         asset_backup_dir = _get(values, "ASSET_BACKUP_DIR", str(app_dir / "backups" / "assets")).strip()
@@ -235,6 +243,7 @@ class Settings:
             processed_dir=Path(_get(values, "PROCESSED_DIR", r"C:\liftpic\fotos\out")),
             webout_dir=Path(webout) if webout else None,
             qrcode_dir=Path(qrcode) if qrcode else None,
+            qrcode_dir_2=Path(qrcode2) if qrcode2 else None,
             upload_source=_get(values, "UPLOAD_SOURCE", "qrcode").strip().lower(),
             stage_in_shadow=parse_bool(_get(values, "STAGE_IN_SHADOW", "false"), False),
             statistic_file=Path(statistic_file) if statistic_file else None,

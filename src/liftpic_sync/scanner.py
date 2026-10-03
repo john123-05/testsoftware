@@ -151,6 +151,8 @@ class FolderScanner:
     def _scan_folders(self) -> list[Path]:
         if self.settings.upload_source == "qrcode" and self.settings.qrcode_dir:
             folders = [self.settings.qrcode_dir]
+            if self.settings.qrcode_dir_2:
+                folders.append(self.settings.qrcode_dir_2)
         elif self.settings.upload_source == "webout" and self.settings.webout_dir:
             folders = [self.settings.webout_dir]
         else:
@@ -159,6 +161,8 @@ class FolderScanner:
                 folders.append(self.settings.webout_dir)
             if self.settings.qrcode_dir:
                 folders.append(self.settings.qrcode_dir)
+            if self.settings.qrcode_dir_2:
+                folders.append(self.settings.qrcode_dir_2)
 
         unique: list[Path] = []
         seen: set[str] = set()
@@ -184,7 +188,10 @@ class FolderScanner:
         return target
 
     def _is_qrcode_path(self, path: Path) -> bool:
-        return bool(self.settings.qrcode_dir and path.parent.resolve() == self.settings.qrcode_dir.resolve())
+        resolved = path.parent.resolve()
+        if self.settings.qrcode_dir and resolved == self.settings.qrcode_dir.resolve():
+            return True
+        return bool(self.settings.qrcode_dir_2 and resolved == self.settings.qrcode_dir_2.resolve())
 
     def _is_webout_path(self, path: Path) -> bool:
         return bool(self.settings.webout_dir and path.parent.resolve() == self.settings.webout_dir.resolve())
