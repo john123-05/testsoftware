@@ -98,3 +98,36 @@ def test_ride_rollup_combines_taken_and_sold_counts(tmp_path: Path):
     assert rollups[0]["photos_taken_count"] == 1
     assert rollups[0]["photos_sold_count"] == 1
     assert rollups[0]["conversion_rate"] == 1.0
+
+
+def test_ride_count_parity_even_only_counts_speed_camera(tmp_path: Path):
+    """Plose: two independent cameras cover the same ride (even/odd capture
+    numbers) - counting both as separate rides would double the real total."""
+    from dataclasses import replace
+
+    settings = make_settings(tmp_path)
+    settings = replace(settings, ride_count_parity="even")
+
+    # Same ride, two cameras: one even (speed), one odd (no speed).
+    (settings.processed_dir / "00226_202610031200003673.jpg").write_bytes(b"x")
+    (settings.raw_dir / "00227.jpg").write_bytes(b"x")
+
+    store = StateStore(settings.state_db)
+    result = RideTracker(settings, store).scan_once()
+
+    assert result.seen == 1
+    assert result.new == 1
+    rows = store.conn.execute("SELECT capture_id FROM ride_events").fetchall()
+    assert [r["capture_id"] for r in rows] == ["00226"]
+
+
+def test_ride_count_parity_all_counts_every_capture(tmp_path: Path):
+    """Default (every other machine): unchanged, both cameras count."""
+    settings = make_settings(tmp_path)
+    (settings.processed_dir / "00226_202610031200003673.jpg").write_bytes(b"x")
+    (settings.raw_dir / "00227.jpg").write_bytes(b"x")
+
+    store = StateStore(settings.state_db)
+    result = RideTracker(settings, store).scan_once()
+
+    assert result.seen == 2

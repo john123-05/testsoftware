@@ -76,6 +76,7 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("asset_sync_enabled", "ASSET_SYNC_ENABLED"),
     ("probe_enabled", "PROBE_ENABLED"),
     ("terminal_host", "TERMINAL_HOST"),
+    ("ride_count_parity", "RIDE_COUNT_PARITY"),
 )
 
 # Welche davon Schalter sind und deshalb als true/false geschrieben werden.

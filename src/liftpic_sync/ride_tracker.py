@@ -44,6 +44,17 @@ class RideTracker:
                 skipped_unknown += 1
                 continue
 
+            if self.settings.ride_count_parity in ("even", "odd"):
+                try:
+                    is_even = int(parsed.capture_id) % 2 == 0
+                except ValueError:
+                    is_even = None
+                wants_even = self.settings.ride_count_parity == "even"
+                if is_even is None or is_even != wants_even:
+                    # The other camera's capture of the same ride - already
+                    # counted (or about to be) via its matching capture_id.
+                    continue
+
             # A capture is one ride, counted exactly once - even if its file is
             # re-dated later (mtime change), never recount it under a new day.
             if self.store.has_ride_capture(parsed.capture_id):

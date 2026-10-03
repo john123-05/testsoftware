@@ -63,6 +63,12 @@ class Settings:
     paper_warn_remaining: int = 20
     ride_count_enabled: bool = True
     ride_count_source: str = "processed,raw"
+    # For a park with two independent cameras covering the SAME ride (Plose:
+    # one PC assigns even capture numbers, the other odd - every ride produces
+    # one of each). Counting every capture as its own ride would double-count.
+    # "even"/"odd" counts only that camera's captures as rides; "all" (default,
+    # every other machine) counts every capture, unchanged from before.
+    ride_count_parity: str = "all"
     ride_rollup_days: int = 14
     # Which 1-based digit positions of the camera capture number form the
     # picture code - must equal jpeg4web's CodePositionsInFilename (Imst: 2,3,4,5)
@@ -267,6 +273,7 @@ class Settings:
             camera_code=_get(values, "CAMERA_CODE", _get(values, "MACHINE_ID", "default")).strip() or "default",
             ride_count_enabled=parse_bool(_get(values, "RIDE_COUNT_ENABLED", "true"), True),
             ride_count_source=_get(values, "RIDE_COUNT_SOURCE", "processed,raw").strip().lower(),
+            ride_count_parity=_get(values, "RIDE_COUNT_PARITY", "all").strip().lower(),
             ride_rollup_days=int(_get(values, "RIDE_ROLLUP_DAYS", "14")),
             file_code_positions=_get(values, "FILE_CODE_POSITIONS", "2,3,4,5").strip() or "2,3,4,5",
             asset_sync_enabled=parse_bool(_get(values, "ASSET_SYNC_ENABLED", "false"), False),
