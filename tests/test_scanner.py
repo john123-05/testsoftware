@@ -194,6 +194,11 @@ def test_statistic_source_resolves_sold_photo_without_speed(tmp_path: Path):
     assert result.queued == 1
     row = store.conn.execute("SELECT * FROM photo_events WHERE capture_id='00295'").fetchone()
     assert row["speed_status"] == "missing"
+    # Without this, liftpic-ingest-commit silently skips writing a claimable
+    # photos row at all for statistic-sourced sales (it requires
+    # sold_source_path as proof of sale, normally the qrcode folder).
+    import json as _json
+    assert _json.loads(row["metadata_json"])["sold_source_path"]
 
 
 def test_statistic_source_resolves_sold_photo_with_speed(tmp_path: Path):

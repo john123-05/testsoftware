@@ -85,7 +85,18 @@ class FolderScanner:
             raw_path = path if path.parent == self.settings.raw_dir else None
             processed_path: Path | None = None
             speed_match = speed_from_processed_name(path.name)
-            sold_source_path = path if self._is_qrcode_path(path) else None
+            # The server only turns an upload into a claimable `photos` row
+            # (with real speed/captured_at - see liftpic-ingest-commit's
+            # writeClaimablePhoto) when sold_source_path is set. Normally that
+            # means "sat in the qrcode folder". With upload_source=statistic
+            # there is no qrcode folder at all - every candidate here already
+            # IS a confirmed sale (it came straight from the sale log), so it
+            # counts as sold too.
+            sold_source_path = (
+                path
+                if self._is_qrcode_path(path) or self.settings.upload_source == "statistic"
+                else None
+            )
 
             if path.parent == self.settings.processed_dir:
                 processed_path = path
