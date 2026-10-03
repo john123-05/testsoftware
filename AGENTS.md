@@ -117,3 +117,91 @@ different park/machine configuration.
   capture_id` for both ride events and sold-photo upload events.
 - If GitHub push fails because Git/auth is missing, finish the local repo and
   report the exact next command once credentials are available.
+
+## Plose onboarding (2026-10-03) - new patterns for the next new customer
+
+Plose (Plosebob summer toboggan, South Tyrol) was the first customer whose
+on-site setup didn't fit any existing assumption. Three machine-level
+settings got added, all opt-in (default = old behavior unchanged, so no
+existing machine's `.env` is affected unless its dashboard config explicitly
+sets them):
+
+- **`UPLOAD_SOURCE=statistic`** (`mode='sold_via_statistic'` in
+  `liftpic_machine_configs`) - for sale software with no qrcode staging step
+  at all. Pressing "Kaufen" only appends a line to a `Statistic.txt`-style
+  sale log (`DATE::C:\path\to\captured\file.jpg::code`); `scanner.py`'s
+  `_statistic_sold_images()` reads that log instead of watching a folder, and
+  resolves each sold filename back to its real file (preferring the
+  processed/speed-stamped copy over the raw capture).
+- **`QRCODE_DIR_2`** - for a machine with two independent camera PCs that
+  each have their own "sold" folder (`qrcode`/`qrcode2`) instead of sharing
+  one.
+- **`settings.ride_count_parity`** (`"even"`/`"odd"`, default `"all"`) - for
+  two cameras covering the SAME ride (one assigns even capture numbers, the
+  other odd). Counting every capture as its own ride doubles the real total;
+  this counts rides from only one camera's stream.
+
+**A real, previously-undiscovered bug found and fixed along the way**:
+`liftpic-ingest-commit`'s `writeClaimablePhoto()` only turns an upload into a
+*correct* claimable `photos` row (real `speed_kmh`/`captured_at` from
+`photo_events`) when the event's metadata has `sold_source_path` set -
+normally true only for files pulled from the `qrcode` folder. Every other
+upload still gets a `photos` row (a separate DB trigger on the raw storage
+upload creates one), but that trigger has none of the rich metadata, so it
+silently falls back to `speed_kmh=0`/`captured_at=upload time` - and nothing
+ever corrects it afterward for a park with no qrcode step. **Any new
+sold-photo detection mechanism you add must also set `sold_source_path` in
+scanner.py's metadata**, or its uploads will look "sold" but carry wrong
+speed/time data forever. (Plose had ~11 already-uploaded photos stuck this
+way; fixed by hand via SQL after the code fix shipped - check for this class
+of symptom - `speed_kmh = 0` instead of `null`, `captured_at` suspiciously
+equal to `created_at` - on any new customer's first live day too.)
+
+**Dashboard2 hardcoded per-park lists that silently fall back to Imst's look
+when a new park isn't added** - grep for the new customer's old park_id
+missing from these after onboarding, or things will look subtly wrong without
+an obvious error:
+- `src/lib/photoBrowser.ts` `CLAIM_BASE_BY_PARK` (no entry -> no "Claim-Link
+  kopieren" button or QR code in the staff Foto-Browser).
+- `src/lib/parkBrand.ts` `PARK_ACCENT_COLOR` (no entry -> CRM
+  Umfrage/Social preview falls back to Imst gold). If the new park's brand
+  color is dark, also check `accentTextColorForPark`'s contrast still reads
+  right (it auto-computes light/dark text via YIQ, but verify).
+- `src/components/GuestActivityAwareOverlay.tsx` and the matching check in
+  `src/components/layout/Sidebar.tsx` (`isTarzansPark`/`GUEST_ACTIVITY_PARK_IDS`)
+  - the "Benutzer" page stays "Bald verfügbar" for any park not in this set,
+  even once it has real guest data.
+
+**Two separate `parks` tables, easy to forget the second one**: the shared
+project (`kvpcwlcfgmsmarjtwpsx`) has the park used by the claim pages and
+`liftpic_machine_configs`. The **operator** project (`xcrxltiiovpoladpaewd`)
+has its own, SEPARATE `parks` table (same `id`, needs `organization_id`,
+`name`, `slug`) - without a matching row there, the CRM/Umfrage pages show
+"No access to this park" even with a correct password login. Separately,
+check `auth.users.raw_app_meta_data->'allowed_park_ids'` on the operator
+project for any operator account with a restrictive list (not every account
+has one) - add the new park_id there too, or the same error persists even
+after the `parks` row exists. User needs to log out/in for a metadata change
+to take effect (JWT is cached).
+
+**Photo rotation/aspect ratio**: never assume a new customer's camera
+behaves like a park you copied the claim-page template from. Download one
+real, recent photo from `photos.storage_path` and look at it directly before
+setting `ROTATION_DEGREES`/aspect classes - Tarzans' camera needed 270°
+rotation and portrait framing, Imst's and Plose's need 0° and landscape.
+Wrong inherited values silently ship otherwise.
+
+**AnyDesk PowerShell**: multi-line input (including here-strings, `@'...'@`)
+reliably gets corrupted/reordered over AnyDesk's remote session. Always a
+single line, `;`-separated, no backtick line continuations.
+
+**Liftpic Sync resilience** (do this for every new PC, not just when asked):
+after the bootstrap installer, also run `scripts/watchdog_einrichten.ps1` as
+Administrator. The scheduled task's own "restart on failure" does NOT catch
+a clean exit (venv's `python.exe` is a starter stub that exits 0 the instant
+it hands off to the real interpreter - Task Scheduler sees that as success,
+not failure) - a process that dies mid-session otherwise stays dead until
+the next full reboot. This is NOT part of the bootstrap script; it has to be
+run separately. Confirmed needed in practice: Plose's agent died exactly
+this way mid-session today and sat dead for ~45 minutes before anyone
+noticed.
