@@ -169,3 +169,82 @@ def test_scanner_skips_already_uploaded_capture_after_redate(tmp_path: Path):
     assert second.queued == 0  # already uploaded -> skipped, no phantom duplicate
     assert store.counts().get("queued", 0) == 0
     assert store.photos_sold_total() == 1  # still exactly one event, not two
+
+
+def test_statistic_source_resolves_sold_photo_without_speed(tmp_path: Path):
+    """Sale software with no qrcode step (Plose): a Statistic.txt sale line
+    must resolve back to the raw capture and queue it."""
+    from dataclasses import replace
+
+    settings = make_settings(tmp_path)
+    settings = replace(
+        settings,
+        upload_source="statistic",
+        statistic_file=tmp_path / "Statistic.txt",
+    )
+    (settings.raw_dir / "00295.jpg").write_bytes(b"raw")
+    settings.statistic_file.write_text(
+        "03.10.2026 15:54:57::C:\\liftpic\\fotos\\00295.jpg::3\n",
+        encoding="utf-8",
+    )
+
+    store = StateStore(settings.state_db)
+    result = FolderScanner(settings, store).scan_once()
+
+    assert result.queued == 1
+    row = store.conn.execute("SELECT * FROM photo_events WHERE capture_id='00295'").fetchone()
+    assert row["speed_status"] == "missing"
+
+
+def test_statistic_source_resolves_sold_photo_with_speed(tmp_path: Path):
+    """A sale line for an even capture (speed camera) must find the
+    speed-stamped processed copy, not just the raw file."""
+    from dataclasses import replace
+
+    settings = make_settings(tmp_path)
+    settings = replace(
+        settings,
+        upload_source="statistic",
+        statistic_file=tmp_path / "Statistic.txt",
+    )
+    (settings.processed_dir / "00302_202610031538093871.jpg").write_bytes(b"processed")
+    settings.statistic_file.write_text(
+        "03.10.2026 16:00:28::C:\\liftpic\\fotos\\00302_202610031538093871.jpg::3\n",
+        encoding="utf-8",
+    )
+
+    store = StateStore(settings.state_db)
+    result = FolderScanner(settings, store).scan_once()
+
+    assert result.queued == 1
+    row = store.conn.execute("SELECT * FROM photo_events WHERE capture_id='00302'").fetchone()
+    assert row["speed_status"] == "ok"
+    assert row["speed_kmh"] == 38.71
+
+
+def test_statistic_source_ignores_unmatched_and_duplicate_lines(tmp_path: Path):
+    from dataclasses import replace
+
+    settings = make_settings(tmp_path)
+    settings = replace(
+        settings,
+        upload_source="statistic",
+        statistic_file=tmp_path / "Statistic.txt",
+    )
+    (settings.raw_dir / "00295.jpg").write_bytes(b"raw")
+    settings.statistic_file.write_text(
+        "\n".join(
+            [
+                "not a sale line at all",
+                "03.10.2026 15:54:57::C:\\liftpic\\fotos\\00295.jpg::3",
+                "03.10.2026 15:54:58::C:\\liftpic\\fotos\\00295.jpg::3",  # duplicate
+                "03.10.2026 15:55:00::C:\\liftpic\\fotos\\00999.jpg::3",  # file never arrived
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    store = StateStore(settings.state_db)
+    result = FolderScanner(settings, store).scan_once()
+
+    assert result.queued == 1  # only the one real, resolvable, non-duplicate sale

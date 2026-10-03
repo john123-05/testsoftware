@@ -18,6 +18,11 @@ def config_to_env(config: dict[str, object], device_token: str) -> dict[str, str
         upload_source = "processed"
     if mode == "count_only":
         upload_source = "processed"
+    # Sale software with no qrcode staging step (Plose): "Kaufen" only appends
+    # a line to the Statistic.txt-style sale log, so that log is the sold-photo
+    # source of truth instead of a folder. See scanner.py's _statistic_sold_images.
+    if mode == "sold_via_statistic":
+        upload_source = "statistic"
 
     shadow_mode = bool(config.get("shadow_mode"))
     if mode == "count_only":

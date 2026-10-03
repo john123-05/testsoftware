@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -11,6 +12,34 @@ from .files import is_image, is_stable, sha256_file
 from .identity import build_event_key
 from .speed import find_matching_processed_file, speed_from_processed_name
 from .state import PhotoEvent, StateStore
+
+# A sold-photo line in a Statistic.txt-style sale log, e.g.:
+#   03.10.2026 16:00:28::C:\liftpic\fotos\00302_202610031538093871.jpg::3
+# Used by UPLOAD_SOURCE=statistic (Plose: the sale software has no qrcode
+# staging step at all - pressing "Kaufen" only appends a line here).
+STATISTIC_SOLD_LINE_RE = re.compile(r"::(?P<path>[A-Za-z]:\\[^:]+?\.jpe?g)::", re.I)
+
+
+def _tail_text_lines(path: Path, max_bytes: int = 256_000) -> list[str]:
+    """Last `max_bytes` of a text log, split into non-empty lines.
+
+    Statistic.txt only grows (one line per sale) and is read on every scan
+    cycle, so this avoids loading a file that could grow large over a long
+    season into memory in full each time - mirrors operational_monitor's
+    _tail_lines approach.
+    """
+    try:
+        with path.open("rb") as handle:
+            handle.seek(0, 2)
+            size = handle.tell()
+            handle.seek(max(0, size - max_bytes))
+            raw = handle.read()
+    except OSError:
+        return []
+    text = raw.decode("utf-8", errors="replace")
+    if text.count("\ufffd") > 8:
+        text = raw.decode("latin1", errors="replace")
+    return [line for line in text.splitlines() if line.strip()]
 
 
 @dataclass(frozen=True)
@@ -142,11 +171,61 @@ class FolderScanner:
         return ScanResult(queued, staged, skipped_unstable, skipped_unknown)
 
     def _candidate_images(self) -> list[Path]:
+        if self.settings.upload_source == "statistic":
+            return self._statistic_sold_images()
+
         candidates: list[Path] = []
         for folder in self._scan_folders():
             if folder.exists():
                 candidates.extend(path for path in folder.iterdir() if is_image(path))
         return sorted(candidates, key=lambda path: path.stat().st_mtime)
+
+    def _statistic_sold_images(self) -> list[Path]:
+        """Sold photos for sale software with no qrcode staging step.
+
+        Instead of watching a folder for sold files, this reads which photos
+        were actually sold from the sale log itself (settings.statistic_file)
+        and resolves each one back to its real file on disk - preferring the
+        processed copy (it may carry a speed suffix the raw capture doesn't).
+        """
+        stat_file = self.settings.statistic_file
+        if not stat_file or not stat_file.exists():
+            return []
+
+        seen: set[str] = set()
+        candidates: list[Path] = []
+        for line in _tail_text_lines(stat_file):
+            match = STATISTIC_SOLD_LINE_RE.search(line)
+            if not match:
+                continue
+            # String split, not Path(...).name: the logged path is always
+            # Windows-style (backslashes), but pathlib only treats backslash
+            # as a separator on Windows itself - on any other OS (incl. this
+            # test suite) Path(...).name would return the whole string.
+            basename = match.group("path").strip().replace("/", "\\").rsplit("\\", 1)[-1]
+            if basename in seen:
+                continue
+            seen.add(basename)
+            resolved = self._resolve_sold_filename(basename)
+            if resolved:
+                candidates.append(resolved)
+        return candidates
+
+    def _resolve_sold_filename(self, basename: str) -> Path | None:
+        parsed = parse_capture_filename(basename)
+        if not parsed:
+            return None
+
+        processed_match, _ = find_matching_processed_file(
+            self.settings.processed_dir, parsed.capture_id, None, self.settings.speed_match_seconds
+        )
+        if processed_match:
+            return processed_match
+
+        raw_candidate = self.settings.raw_dir / basename
+        if raw_candidate.exists():
+            return raw_candidate
+        return None
 
     def _scan_folders(self) -> list[Path]:
         if self.settings.upload_source == "qrcode" and self.settings.qrcode_dir:
