@@ -8,10 +8,10 @@ from pathlib import Path
 
 LEGACY_RE = re.compile(r"^(?P<legacy>\d{4})(?P<time>\d{8})(?P<file>\d{4})\.jpe?g$", re.I)
 PROCESSED_RE = re.compile(
-    r"^(?P<capture>\d{5})_?(?P<stamp>\d{14})(?P<speed>\d{4})\.jpe?g$",
+    r"^t?(?P<capture>\d{4,5})_?(?P<stamp>\d{14})(?P<speed>\d{4})\.jpe?g$",
     re.I,
 )
-RAW_RE = re.compile(r"^(?P<capture>\d{1,8})\.jpe?g$", re.I)
+RAW_RE = re.compile(r"^t?(?P<capture>\d{1,8})\.jpe?g$", re.I)
 
 
 @dataclass(frozen=True)

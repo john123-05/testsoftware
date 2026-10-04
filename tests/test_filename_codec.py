@@ -50,3 +50,22 @@ def test_build_legacy_filename_uses_interleaving_formula():
     assert legacy.filename == "2443106774002027.jpg"
     assert legacy.time_code == "14072026"
     assert legacy.file_code == "0047"
+
+
+def test_gruenberg_t_prefix_names():
+    from liftpic_sync.filename_codec import build_legacy_filename, parse_capture_filename
+    from datetime import datetime
+
+    processed = parse_capture_filename("t0056_202610041059082403.jpg")
+    assert processed is not None
+    assert processed.capture_id == "00056"
+    assert processed.speed_code == "2403"
+    assert processed.timestamp == datetime(2026, 10, 4, 10, 59, 8)
+
+    raw = parse_capture_filename("t0056.jpg")
+    assert raw is not None and raw.capture_id == "00056"
+
+    # Positions 2,3,4,5 of "t0056" sind "0056" - gleiches Ergebnis wie 00056.jpg.
+    a = build_legacy_filename(customer_code="5533", capture_id=processed.capture_id, captured_at=datetime(2026, 10, 4))
+    b = build_legacy_filename(customer_code="5533", capture_id="00056", captured_at=datetime(2026, 10, 4))
+    assert a.file_code == "0056" and a.filename == b.filename
