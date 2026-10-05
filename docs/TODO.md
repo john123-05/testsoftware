@@ -256,3 +256,50 @@ bolt.new hält eine eigene, ältere Kopie von `john123-05/dashboard2`. Ein
 Publish-Klick hat am 15.08. **23 Dateien und 4136 Zeilen zurückgedreht** —
 unter der Beschreibung „Updated config.toml". Vor jedem Publish dort den
 GitHub-Stand holen, sonst wiederholt es sich. Siehe F-013.
+
+---
+
+## Grünberg-Flitzer — offen nach der Einrichtung (05.10.2026)
+
+Park `25c1022b-4e2e-4fc4-b54d-72a4ced2522b`, Automat `gruenberg-pc1`, Kunden-
+nummer 5533, 1 Kamera, Münzen + Karte. Der Agent läuft seit dem 04.10. abends,
+Fotos landen im richtigen Park, Claim-Seite `/gruenberg` und die sieben
+`gruenberg-*`-Funktionen laufen. Betreiber hat entschieden: **später**.
+
+1. **Neustart-Knöpfe (Kamera-Software, Verkaufsprogramm, Lichtschranke).**
+   Brauchen zweierlei: (a) `settings` der Maschine mit `viewer_restart_enabled`,
+   `viewer_exe`, `camera_exe`, `lightbarrier_exe`; (b) der Agent muss in der
+   Benutzersitzung laufen — die Aufgabe `LiftpicSync` läuft aber als SYSTEM
+   (Sitzung 0), dann blendet der Agent die Knöpfe absichtlich aus (F-036).
+   Vorher klären: meldet sich der PC nach Neustart automatisch an (Autologin)?
+   Sonst startet der Agent nicht. Pfade vorher am PC prüfen, nicht raten.
+2. **Overlay aus dem Dashboard ändern.** `asset_sync_enabled` ist bei Grünberg
+   aus. Danach aktuelles Overlay vom PC holen (Bilder aus `samuel_neu`,
+   `imageloader`, `jpeg4web_22` nach `Downloads\gruenberg-overlay` kopieren, per
+   AnyDesk auf den Mac), im Dashboard hochladen, damit es als „aktuell" erscheint.
+3. **Kartenzahlung erkennen.** `terminal\ZvtLog_*.txt` wird seit 05.05.2026 nicht
+   mehr geschrieben; das Verkaufsprogramm vermerkt nur `Credit card return value: 0`
+   in `samuel_neu\log.txt`. Der Agent liest das nicht (`payments.py`). Option:
+   Zeile als Kartenzahlung werten, wenn kurz vor der `Statistic.txt`-Zeile. Aktuell:
+   219 Verkäufe „unbekannt". Änderung am Agenten — vorher mit dem Betreiber klären.
+4. **Papierbestand.** `samuel_neu\PrintCount.txt` steht auf 0, zuletzt geändert am
+   25.05.2026, obwohl gedruckt wird. Samuel: Rolle 700, Warnung bei 30, Drucker
+   `DS-RX1`. Tom fragen, warum die Datei nicht zählt. Alternative: Bestand aus den
+   verkauften Fotos seit „Rolle gewechselt am" rechnen (kleine Dashboard-Erweiterung).
+   Außerdem `paper_capacity` in der Maschinenkonfiguration setzen (steht auf 0).
+5. **Zeitzone von `captured_at`.** Der Agent schreibt die Ortszeit mit `+00`
+   (Imst: echtes UTC). Dashboard zeigt Stunden-Grafiken dadurch 2 h zu spät. Betrifft
+   vermutlich auch Plose. Korrektur im Agenten und in den bisherigen Zeilen — offen,
+   Betreiber hat noch nicht zugestimmt.
+6. **QR-Ziel umstellen** (Go-live): der gedruckte QR zeigt noch auf das alte System
+   (`www2.liftpictures.de`). Muss auf `liftpictures-fotos.de/gruenberg/claim?code=`
+   zeigen; danach Testkauf und Code mit der Datenbank abgleichen.
+7. **Altes System läuft parallel** und lädt dieselben Fotos hoch (Monatsstatistik
+   `www2.liftpictures.de/jpeg4web/manage/stat_year.php?attr=5533`). Prüfen, ob noch
+   ein alter Uploader-Prozess aktiv ist.
+8. **Videos.** 5-Sekunden-Clips liegen beim alten System unter `…/jpeg4web/videox/<Code>.mp4`
+   (Name = Foto-Code). Die Claim-Seite zeigt sie von dort. Wird das alte System
+   abgeschaltet: eigene Quelle bauen (`C:\liftpic\videos` auf dem PC ist der Ansatz).
+9. **Münzprüfer:** `CoinChangerError: Payment unit disabled` (04.10., 17:45) → Tom.
+10. **Betreiber-Logins** mit `allowed_park_ids` brauchen die Grünberg-ID (für den
+    Login von tomnotes.tn@gmail.com ist es erledigt).
