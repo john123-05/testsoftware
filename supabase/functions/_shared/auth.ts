@@ -24,36 +24,52 @@ export async function requireMachineAuth(req: Request): Promise<MachineAuth> {
     if (!machineId || !parkId) {
       throw authError("missing machine or park header", 400);
     }
-
     return { machineId, parkId };
   }
 
-  if (!token) {
-    throw authError("unauthorized");
-  }
-
   const supabase = serviceClient();
-  let query = supabase
-    .from("liftpic_machine_configs")
-    .select("machine_id, park_id, camera_code")
-    .eq("device_token", token)
-    .eq("is_active", true)
-    .limit(1);
 
-  if (machineId) {
-    query = query.eq("machine_id", machineId);
+  if (token) {
+    let query = supabase
+      .from("liftpic_machine_configs")
+      .select("machine_id, park_id, camera_code")
+      .eq("device_token", token)
+      .eq("is_active", true)
+      .limit(1);
+    if (machineId) {
+      query = query.eq("machine_id", machineId);
+    }
+    const { data, error } = await query.maybeSingle();
+    if (!error && data) {
+      return {
+        machineId: data.machine_id,
+        parkId: data.park_id,
+        cameraCode: data.camera_code ?? undefined,
+      };
+    }
   }
 
-  const { data, error } = await query.maybeSingle();
-  if (error || !data) {
-    throw authError("unauthorized");
+  // TEMPORARY device-identity fallback (remove after the PC is cleaned up):
+  // authenticate by X-Machine-ID + X-Park-ID (a UUID) against an active config.
+  if (machineId && parkId) {
+    const { data, error } = await supabase
+      .from("liftpic_machine_configs")
+      .select("machine_id, park_id, camera_code")
+      .eq("machine_id", machineId)
+      .eq("park_id", parkId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    if (!error && data) {
+      return {
+        machineId: data.machine_id,
+        parkId: data.park_id,
+        cameraCode: data.camera_code ?? undefined,
+      };
+    }
   }
 
-  return {
-    machineId: data.machine_id,
-    parkId: data.park_id,
-    cameraCode: data.camera_code ?? undefined,
-  };
+  throw authError("unauthorized");
 }
 
 export function json(data: unknown, status = 200): Response {

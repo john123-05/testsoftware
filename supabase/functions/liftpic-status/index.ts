@@ -1,10 +1,28 @@
 import { json, requireMachineAuth } from "../_shared/auth.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 
+// Postgres kann das Null-Zeichen (\u0000) weder in text noch in jsonb speichern
+// (Fehler 22P05). Geräteprotokolle in UTF-16 (z. B. der Münzprüfer in Grünberg)
+// bringen es in die Statusmeldung - dann wurde der ganze Heartbeat abgelehnt und
+// der Agent startete sich alle 10 Minuten neu. Deshalb vor dem Speichern entfernen.
+function stripNul(value: unknown): unknown {
+  if (typeof value === "string") return value.replace(/\u0000/g, "");
+  if (Array.isArray(value)) return value.map(stripNul);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+      out[key.replace(/\u0000/g, "")] = stripNul(inner);
+    }
+    return out;
+  }
+  return value;
+}
+
 Deno.serve(async (req) => {
   try {
     const auth = await requireMachineAuth(req);
-    const body = await req.json();
+    // deno-lint-ignore no-explicit-any
+    const body = stripNul(await req.json()) as any;
     const supabase = serviceClient();
     const { error } = await supabase.from("machine_status").upsert({
       machine_id: auth.machineId,
@@ -256,6 +274,13 @@ Deno.serve(async (req) => {
     return json({ ok: true });
   } catch (err) {
     if (err instanceof Response) return err;
-    return json({ error: String(err) }, 500);
+    // Datenbankfehler sind Objekte (message/code/details) - String(err) machte daraus
+    // nur "[object Object]". Jetzt kommt der echte Grund beim Agenten im Protokoll an.
+    const e = err as { message?: string; code?: string; details?: string; hint?: string };
+    const detail = err instanceof Error
+      ? err.message
+      : [e?.code, e?.message, e?.details, e?.hint].filter(Boolean).join(" | ") || JSON.stringify(err);
+    console.error("liftpic-status failed:", detail);
+    return json({ error: detail }, 500);
   }
 });
