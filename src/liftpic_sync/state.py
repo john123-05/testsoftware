@@ -46,6 +46,7 @@ class RideEvent:
     processed_path: str | None
     speed_kmh: float | None
     speed_status: str
+    checksum: str | None = None
 
 
 class StateStore:
@@ -234,6 +235,12 @@ class StateStore:
             ON ride_events(park_id, machine_id, camera_code, business_date)
             """
         )
+        ride_columns = {
+            row["name"]
+            for row in cur.execute("PRAGMA table_info(ride_events)").fetchall()
+        }
+        if "checksum" not in ride_columns:
+            cur.execute("ALTER TABLE ride_events ADD COLUMN checksum TEXT")
         # Stable per-capture lookups so a file that gets re-dated (mtime change)
         # is never processed twice under a new business_date.
         cur.execute("CREATE INDEX IF NOT EXISTS photo_events_capture_idx ON photo_events(capture_id)")
@@ -346,9 +353,9 @@ class StateStore:
             INSERT INTO ride_events (
                 event_key, capture_id, park_slug, park_id, machine_id, camera_code,
                 business_date, captured_at, source, raw_path, processed_path,
-                speed_kmh, speed_status, created_at, updated_at
+                speed_kmh, speed_status, checksum, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(event_key) DO UPDATE SET
                 park_slug=excluded.park_slug,
                 park_id=excluded.park_id,
@@ -360,6 +367,7 @@ class StateStore:
                     WHEN excluded.speed_status = 'ok' THEN excluded.speed_status
                     ELSE ride_events.speed_status
                 END,
+                checksum=COALESCE(ride_events.checksum, excluded.checksum),
                 updated_at=excluded.updated_at
             """,
             (
@@ -376,6 +384,7 @@ class StateStore:
                 event.processed_path,
                 event.speed_kmh,
                 event.speed_status,
+                event.checksum,
                 now,
                 now,
             ),
@@ -613,25 +622,33 @@ class StateStore:
         ).fetchall()
         return {row["upload_status"]: int(row["count"]) for row in rows}
 
-    def has_uploaded_capture(self, capture_id: str) -> bool:
-        """True if this capture's photo was already uploaded (or shadowed) in an
-        earlier event, regardless of business_date. Lets the scanner skip a
-        leftover qrcode file that jpeg4web re-touched, instead of re-queuing it
-        under a new (wrong) date - the cause of phantom next-day duplicate sales."""
-        row = self.conn.execute(
-            "SELECT 1 FROM photo_events WHERE capture_id=? AND upload_status IN ('uploaded','shadowed') LIMIT 1",
+    def uploaded_capture_checksums(self, capture_id: str) -> set[str | None]:
+        """Checksums of every uploaded (or shadowed) photo with this capture number.
+
+        The number alone does not identify a photo: most cameras restart their
+        counter every night, so 00043 comes back every day. The content does -
+        a file that jpeg4web merely re-touched keeps its checksum (all 115
+        phantom duplicates of 30/31.07.2026 did), a new photo does not.
+        """
+        rows = self.conn.execute(
+            "SELECT checksum FROM photo_events WHERE capture_id=? AND upload_status IN ('uploaded','shadowed')",
             (capture_id,),
+        ).fetchall()
+        return {row["checksum"] for row in rows}
+
+    def has_uploaded_event(self, event_key: str) -> bool:
+        row = self.conn.execute(
+            "SELECT 1 FROM photo_events WHERE event_key=? AND upload_status IN ('uploaded','shadowed')",
+            (event_key,),
         ).fetchone()
         return row is not None
 
-    def has_ride_capture(self, capture_id: str) -> bool:
-        """True if this capture was already counted as a ride, regardless of
-        business_date. A ride is counted once, even if its file is re-dated later."""
-        row = self.conn.execute(
-            "SELECT 1 FROM ride_events WHERE capture_id=? LIMIT 1",
+    def ride_capture_rows(self, capture_id: str) -> list[sqlite3.Row]:
+        """Every counted ride with this capture number (business_date, checksum)."""
+        return self.conn.execute(
+            "SELECT business_date, checksum FROM ride_events WHERE capture_id=?",
             (capture_id,),
-        ).fetchone()
-        return row is not None
+        ).fetchall()
 
     def purge_business_date(self, date: str) -> tuple[int, int]:
         """Delete all photo + ride events for a business date (YYYY-MM-DD) from

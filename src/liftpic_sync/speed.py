@@ -61,6 +61,43 @@ def find_matching_processed_file(
     return best_path, SpeedMatch(best_match.speed_kmh, best_match.status, best_match.source, best_delta)
 
 
+def capture_time(path: Path) -> datetime:
+    """When the photo was taken: the timestamp in its name, else its local mtime."""
+    parsed = parse_capture_filename(path.name)
+    if parsed and parsed.timestamp:
+        return parsed.timestamp
+    return datetime.fromtimestamp(path.stat().st_mtime)
+
+
+def find_same_day_processed_file(
+    processed_dir: Path,
+    capture_id: str,
+    reference_mtime: float,
+    max_delta_seconds: float,
+) -> tuple[Path | None, SpeedMatch]:
+    """find_matching_processed_file for cameras whose counter restarts daily.
+
+    There the processed folder can hold the same capture number from several
+    days; only a copy from the reference file's own day can belong to it. A
+    single candidate is still accepted on any day (counting-through camera,
+    or a file re-touched later) - that is unambiguous.
+    """
+    path, match = find_matching_processed_file(processed_dir, capture_id, reference_mtime, max_delta_seconds)
+    if path is None:
+        return path, match
+    reference_day = datetime.fromtimestamp(reference_mtime).date()
+    if capture_time(path).date() == reference_day:
+        return path, match
+    same_capture = 0
+    for other in processed_dir.glob("*.jp*g"):
+        parsed = parse_capture_filename(other.name)
+        if parsed and parsed.capture_id == capture_id:
+            same_capture += 1
+            if same_capture > 1:
+                return None, SpeedMatch(None, "missing", "processed_other_day", None)
+    return path, match
+
+
 def parse_aidatest_log_tail(lines: list[str]) -> list[SpeedMatch]:
     matches: list[SpeedMatch] = []
     current_speed: float | None = None

@@ -1,8 +1,18 @@
+import os
+from datetime import datetime
 from pathlib import Path
 
 from liftpic_sync.config import Settings
 from liftpic_sync.scanner import FolderScanner
 from liftpic_sync.state import StateStore
+
+
+def _write_taken(path: Path, content: bytes, taken: datetime) -> Path:
+    """A camera file as it really is on disk: mtime = moment of capture."""
+    path.write_bytes(content)
+    stamp = taken.timestamp()
+    os.utime(path, (stamp, stamp))
+    return path
 
 
 def make_settings(tmp_path: Path) -> Settings:
@@ -182,7 +192,7 @@ def test_statistic_source_resolves_sold_photo_without_speed(tmp_path: Path):
         upload_source="statistic",
         statistic_file=tmp_path / "Statistic.txt",
     )
-    (settings.raw_dir / "00295.jpg").write_bytes(b"raw")
+    _write_taken(settings.raw_dir / "00295.jpg", b"raw", datetime(2026, 10, 3, 15, 50))
     settings.statistic_file.write_text(
         "03.10.2026 15:54:57::C:\\liftpic\\fotos\\00295.jpg::3\n",
         encoding="utf-8",
@@ -236,7 +246,7 @@ def test_statistic_source_ignores_unmatched_and_duplicate_lines(tmp_path: Path):
         upload_source="statistic",
         statistic_file=tmp_path / "Statistic.txt",
     )
-    (settings.raw_dir / "00295.jpg").write_bytes(b"raw")
+    _write_taken(settings.raw_dir / "00295.jpg", b"raw", datetime(2026, 10, 3, 15, 50))
     settings.statistic_file.write_text(
         "\n".join(
             [
@@ -253,3 +263,98 @@ def test_statistic_source_ignores_unmatched_and_duplicate_lines(tmp_path: Path):
     result = FolderScanner(settings, store).scan_once()
 
     assert result.queued == 1  # only the one real, resolvable, non-duplicate sale
+
+
+def _qrcode_settings(tmp_path: Path) -> Settings:
+    from dataclasses import replace
+
+    settings = make_settings(tmp_path)
+    qrcode = settings.raw_dir / "qrcode"
+    qrcode.mkdir()
+    return replace(settings, qrcode_dir=qrcode, upload_source="qrcode")
+
+
+def test_qrcode_reused_capture_number_on_next_day_is_uploaded(tmp_path: Path):
+    """Counter restarts every night (Tarzans, Gruenberg, Plose): 00010 sold
+    yesterday must not block today's, different 00010 - not even while
+    yesterday's file is still sitting in the same folder."""
+    settings = _qrcode_settings(tmp_path)
+    store = StateStore(settings.state_db)
+    scanner = FolderScanner(settings, store)
+
+    yesterday = settings.qrcode_dir / "00010_202610061106161668.jpg"
+    _write_taken(yesterday, b"yesterday's ride", datetime(2026, 10, 6, 11, 6, 16))
+    assert scanner.scan_once().queued == 1
+    first = store.conn.execute("SELECT event_key FROM photo_events").fetchone()["event_key"]
+    store.mark_uploaded(first, "processed/test/a.jpg")
+
+    today = settings.qrcode_dir / "00010_202610071106161668.jpg"
+    _write_taken(today, b"today's ride", datetime(2026, 10, 7, 11, 6, 16))
+    assert scanner.scan_once().queued == 1
+
+    rows = store.conn.execute(
+        "SELECT substr(captured_at, 1, 10) AS day, upload_status FROM photo_events ORDER BY day"
+    ).fetchall()
+    assert [(r["day"], r["upload_status"]) for r in rows] == [
+        ("2026-10-06", "uploaded"),
+        ("2026-10-07", "queued"),
+    ]
+    # Yesterday's file stays known: nothing new on the next pass.
+    store.mark_uploaded(
+        store.conn.execute("SELECT event_key FROM photo_events WHERE upload_status='queued'").fetchone()["event_key"],
+        "processed/test/b.jpg",
+    )
+    assert scanner.scan_once().queued == 0
+
+
+def test_qrcode_retouched_sold_photo_is_not_reuploaded(tmp_path: Path):
+    settings = _qrcode_settings(tmp_path)
+    store = StateStore(settings.state_db)
+    scanner = FolderScanner(settings, store)
+
+    sold = _write_taken(settings.qrcode_dir / "72917.jpg", b"sold", datetime(2026, 10, 4, 17, 8))
+    assert scanner.scan_once().queued == 1
+    key = store.conn.execute("SELECT event_key FROM photo_events").fetchone()["event_key"]
+    store.mark_uploaded(key, "processed/test/72917.jpg")
+
+    later = datetime(2026, 10, 5, 8, 0).timestamp()
+    os.utime(sold, (later, later))  # jpeg4web re-touch: new mtime, same bytes
+
+    assert scanner.scan_once().queued == 0
+    assert store.conn.execute("SELECT COUNT(*) FROM photo_events").fetchone()[0] == 1
+
+
+def test_statistic_old_sale_line_never_uploads_todays_unsold_photo(tmp_path: Path):
+    """Plose: the sale log names 00043.jpg on every day it was sold, but the raw
+    folder only ever holds the newest 00043.jpg. An old sale line must not turn
+    today's unsold photo into a sale; today's own sale line must upload it."""
+    from dataclasses import replace
+
+    settings = replace(
+        make_settings(tmp_path),
+        upload_source="statistic",
+        statistic_file=tmp_path / "Statistic.txt",
+    )
+    store = StateStore(settings.state_db)
+    scanner = FolderScanner(settings, store)
+    raw = settings.raw_dir / "00043.jpg"
+
+    _write_taken(raw, b"03.10. ride", datetime(2026, 10, 3, 10, 57, 5))
+    settings.statistic_file.write_text(
+        "03.10.2026 10:58:00::C:\\liftpic\\fotos\\00043.jpg::3\n", encoding="utf-8"
+    )
+    assert scanner.scan_once().queued == 1
+    key = store.conn.execute("SELECT event_key FROM photo_events").fetchone()["event_key"]
+    store.mark_uploaded(key, "processed/test/00043.jpg")
+
+    # Days later the camera overwrites 00043.jpg with a new, unsold ride.
+    _write_taken(raw, b"07.10. ride", datetime(2026, 10, 7, 11, 40))
+    assert scanner.scan_once().queued == 0
+
+    with settings.statistic_file.open("a", encoding="utf-8") as log:
+        log.write("07.10.2026 11:47:58::C:\\liftpic\\fotos\\00043.jpg::3\n")
+    assert scanner.scan_once().queued == 1
+    row = store.conn.execute(
+        "SELECT captured_at FROM photo_events WHERE upload_status='queued'"
+    ).fetchone()
+    assert row["captured_at"].startswith("2026-10-07")

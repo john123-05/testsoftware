@@ -131,3 +131,44 @@ def test_ride_count_parity_all_counts_every_capture(tmp_path: Path):
     result = RideTracker(settings, store).scan_once()
 
     assert result.seen == 2
+
+
+def _write_taken(path: Path, content: bytes, taken) -> Path:
+    import os
+
+    path.write_bytes(content)
+    os.utime(path, (taken.timestamp(), taken.timestamp()))
+    return path
+
+
+def test_ride_tracker_counts_reused_number_on_next_day(tmp_path: Path):
+    """Counter restarts every night: 00010 on 07.10. is a new ride, not the
+    00010 from 06.10. Counting by number alone froze the count at day one."""
+    from datetime import datetime
+
+    settings = make_settings(tmp_path)
+    store = StateStore(settings.state_db)
+    tracker = RideTracker(settings, store)
+
+    _write_taken(settings.processed_dir / "00010_202610061106161668.jpg", b"a", datetime(2026, 10, 6, 11, 6))
+    assert tracker.scan_once().new == 1
+    _write_taken(settings.processed_dir / "00010_202610071106161668.jpg", b"b", datetime(2026, 10, 7, 11, 6))
+    assert tracker.scan_once().new == 1
+    assert tracker.scan_once().new == 0
+    assert store.ride_counts() == {"2026-10-06": 1, "2026-10-07": 1}
+
+
+def test_ride_tracker_does_not_recount_redated_file(tmp_path: Path):
+    import os
+    from datetime import datetime
+
+    settings = make_settings(tmp_path)
+    store = StateStore(settings.state_db)
+    tracker = RideTracker(settings, store)
+
+    raw = _write_taken(settings.raw_dir / "00048.jpg", b"x", datetime(2026, 10, 6, 12, 0))
+    assert tracker.scan_once().new == 1
+    later = datetime(2026, 10, 7, 8, 0).timestamp()
+    os.utime(raw, (later, later))
+    assert tracker.scan_once().new == 0
+    assert store.ride_counts() == {"2026-10-06": 1}

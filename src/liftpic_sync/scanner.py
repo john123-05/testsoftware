@@ -3,14 +3,14 @@ from __future__ import annotations
 import re
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import Settings
 from .filename_codec import build_legacy_filename, parse_capture_filename
-from .files import is_image, is_stable, sha256_file
+from .files import ChecksumCache, is_image, is_stable
 from .identity import build_event_key
-from .speed import find_matching_processed_file, speed_from_processed_name
+from .speed import capture_time, find_same_day_processed_file, speed_from_processed_name
 from .state import PhotoEvent, StateStore
 
 # A sold-photo line in a Statistic.txt-style sale log, e.g.:
@@ -18,6 +18,9 @@ from .state import PhotoEvent, StateStore
 # Used by UPLOAD_SOURCE=statistic (Plose: the sale software has no qrcode
 # staging step at all - pressing "Kaufen" only appends a line here).
 STATISTIC_SOLD_LINE_RE = re.compile(r"::(?P<path>[A-Za-z]:\\[^:]+?\.jpe?g)::", re.I)
+STATISTIC_SALE_TIME_RE = re.compile(r"^\s*(?P<stamp>\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2})::")
+# Clock jitter between the sale log and the file system.
+SALE_AFTER_CAPTURE_TOLERANCE = timedelta(minutes=5)
 
 
 def _tail_text_lines(path: Path, max_bytes: int = 256_000) -> list[str]:
@@ -42,6 +45,16 @@ def _tail_text_lines(path: Path, max_bytes: int = 256_000) -> list[str]:
     return [line for line in text.splitlines() if line.strip()]
 
 
+def _sale_time(line: str) -> datetime | None:
+    match = STATISTIC_SALE_TIME_RE.match(line)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group("stamp"), "%d.%m.%Y %H:%M:%S")
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True)
 class ScanResult:
     queued: int
@@ -54,13 +67,14 @@ class FolderScanner:
     def __init__(self, settings: Settings, store: StateStore):
         self.settings = settings
         self.store = store
+        self.checksums = ChecksumCache()
 
     def scan_once(self) -> ScanResult:
         queued = 0
         staged = 0
         skipped_unstable = 0
         skipped_unknown = 0
-        seen_capture_ids: set[str] = set()
+        seen_event_keys: set[str] = set()
 
         for path in self._candidate_images():
             if not is_stable(path, self.settings.file_stable_seconds):
@@ -71,15 +85,15 @@ class FolderScanner:
             if not parsed:
                 skipped_unknown += 1
                 continue
-            if parsed.capture_id in seen_capture_ids:
-                continue
-            seen_capture_ids.add(parsed.capture_id)
 
-            # Already uploaded on an earlier run/day? Skip. jpeg4web leaves sold
-            # photos in qrcode and can re-touch them (new mtime), which would
-            # otherwise re-queue them under a new, wrong date and create phantom
-            # duplicate "sales" the next morning. Dedup is stable per capture_id.
-            if self.store.has_uploaded_capture(parsed.capture_id):
+            # Already uploaded? Same number AND same content. jpeg4web leaves sold
+            # photos in qrcode and can re-touch them (new mtime, same bytes) -
+            # those must not come back as phantom next-day sales. But the number
+            # alone is not enough: cameras that restart their counter every night
+            # reuse it daily, and a capture_id-only check silently dropped every
+            # later sale of a number that had ever been sold before.
+            uploaded = self.store.uploaded_capture_checksums(parsed.capture_id)
+            if uploaded and (None in uploaded or self.checksums.get(path) in uploaded):
                 continue
 
             raw_path = path if path.parent == self.settings.raw_dir else None
@@ -108,7 +122,7 @@ class FolderScanner:
                 # from the line above whenever the file wasn't literally in
                 # processed_dir, even if processed_dir had nothing to offer
                 # (empty/already cleaned up), silently losing a known speed.
-                processed_path, speed_match = find_matching_processed_file(
+                processed_path, speed_match = find_same_day_processed_file(
                     self.settings.processed_dir,
                     parsed.capture_id,
                     path.stat().st_mtime,
@@ -134,12 +148,16 @@ class FolderScanner:
                 business_date=business_date,
                 capture_id=parsed.capture_id,
             )
+            # Raw and processed copy of one capture: one event, not two.
+            if event_key in seen_event_keys or self.store.has_uploaded_event(event_key):
+                continue
+            seen_event_keys.add(event_key)
             # Read-only: upload the purchased photo straight from where the
             # camera chain put it (qrcode), never copying/staging anything onto
             # the customer's system. The uploaded name is assigned by the server
             # from legacy_filename in the metadata, so no local rename is needed.
             source_path = path
-            checksum = sha256_file(source_path)
+            checksum = self.checksums.get(source_path)
             status = "queued"
             metadata = {
                 "park_slug": self.settings.park_slug,
@@ -203,38 +221,69 @@ class FolderScanner:
         if not stat_file or not stat_file.exists():
             return []
 
-        seen: set[str] = set()
+        processed_by_capture = self._processed_by_capture()
+        seen: set[tuple[str, str]] = set()
         candidates: list[Path] = []
         for line in _tail_text_lines(stat_file):
             match = STATISTIC_SOLD_LINE_RE.search(line)
-            if not match:
+            sold_at = _sale_time(line)
+            if not match or sold_at is None:
                 continue
             # String split, not Path(...).name: the logged path is always
             # Windows-style (backslashes), but pathlib only treats backslash
             # as a separator on Windows itself - on any other OS (incl. this
             # test suite) Path(...).name would return the whole string.
             basename = match.group("path").strip().replace("/", "\\").rsplit("\\", 1)[-1]
-            if basename in seen:
+            key = (sold_at.date().isoformat(), basename.lower())
+            if key in seen:
                 continue
-            seen.add(basename)
-            resolved = self._resolve_sold_filename(basename)
+            seen.add(key)
+            resolved = self._resolve_sold_file(basename, sold_at, processed_by_capture)
             if resolved:
                 candidates.append(resolved)
         return candidates
 
-    def _resolve_sold_filename(self, basename: str) -> Path | None:
+    def _processed_by_capture(self) -> dict[str, list[Path]]:
+        index: dict[str, list[Path]] = {}
+        folder = self.settings.processed_dir
+        if not folder.exists():
+            return index
+        for path in folder.glob("*.jp*g"):
+            parsed = parse_capture_filename(path.name)
+            if parsed:
+                index.setdefault(parsed.capture_id, []).append(path)
+        return index
+
+    def _resolve_sold_file(
+        self,
+        basename: str,
+        sold_at: datetime,
+        processed_by_capture: dict[str, list[Path]],
+    ) -> Path | None:
+        """The file of THIS sale: same capture number, taken on the sale day.
+
+        The counter restarts daily, so the sale log names the same file (e.g.
+        00043.jpg) on many days while the raw folder only holds the newest
+        00043.jpg. Without the day check an old sale line would resolve to
+        today's - possibly unsold - photo.
+        """
         parsed = parse_capture_filename(basename)
         if not parsed:
             return None
 
-        processed_match, _ = find_matching_processed_file(
-            self.settings.processed_dir, parsed.capture_id, None, self.settings.speed_match_seconds
-        )
-        if processed_match:
-            return processed_match
+        def taken_that_day(path: Path) -> bool:
+            try:
+                taken = capture_time(path)
+            except OSError:
+                return False
+            return taken.date() == sold_at.date() and taken <= sold_at + SALE_AFTER_CAPTURE_TOLERANCE
+
+        same_day = [p for p in processed_by_capture.get(parsed.capture_id, []) if taken_that_day(p)]
+        if same_day:
+            return max(same_day, key=capture_time)
 
         raw_candidate = self.settings.raw_dir / basename
-        if raw_candidate.exists():
+        if raw_candidate.exists() and taken_that_day(raw_candidate):
             return raw_candidate
         return None
 

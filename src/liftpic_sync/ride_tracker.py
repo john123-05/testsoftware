@@ -5,10 +5,10 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import Settings
-from .filename_codec import parse_capture_filename
-from .files import is_image, is_stable
+from .filename_codec import CaptureName, parse_capture_filename
+from .files import ChecksumCache, is_image, is_stable
 from .identity import build_event_key
-from .speed import find_matching_processed_file, speed_from_processed_name
+from .speed import capture_time, find_same_day_processed_file, speed_from_processed_name
 from .state import RideEvent, StateStore
 
 
@@ -24,6 +24,7 @@ class RideTracker:
     def __init__(self, settings: Settings, store: StateStore):
         self.settings = settings
         self.store = store
+        self.checksums = ChecksumCache()
 
     def scan_once(self) -> RideScanResult:
         if not self.settings.ride_count_enabled:
@@ -55,9 +56,7 @@ class RideTracker:
                     # counted (or about to be) via its matching capture_id.
                     continue
 
-            # A capture is one ride, counted exactly once - even if its file is
-            # re-dated later (mtime change), never recount it under a new day.
-            if self.store.has_ride_capture(parsed.capture_id):
+            if self._already_counted(path, parsed):
                 continue
 
             raw_path: Path | None = path if self._same_folder(path.parent, self.settings.raw_dir) else None
@@ -68,7 +67,7 @@ class RideTracker:
                 # See scanner.py's identical check: don't discard an already-
                 # correct speed parsed straight from this file's own name by
                 # unconditionally searching processed_dir, which may be empty.
-                processed_path, speed_match = find_matching_processed_file(
+                processed_path, speed_match = find_same_day_processed_file(
                     self.settings.processed_dir,
                     parsed.capture_id,
                     path.stat().st_mtime,
@@ -103,12 +102,40 @@ class RideTracker:
                 processed_path=str(processed_path) if processed_path else None,
                 speed_kmh=speed_match.speed_kmh,
                 speed_status=speed_match.status,
+                checksum=self.checksums.get(path),
             )
             seen += 1
             if self.store.upsert_ride_event(event):
                 new += 1
 
         return RideScanResult(seen, new, skipped_unstable, skipped_unknown)
+
+    def _already_counted(self, path: Path, parsed: CaptureName) -> bool:
+        """One capture is one ride - but a capture is number AND day.
+
+        Most cameras restart their counter every night; matching on the number
+        alone stopped counting from the second day on. A file that was only
+        re-dated (mtime) keeps its content, so the checksum still recognises it.
+        """
+        rows = self.store.ride_capture_rows(parsed.capture_id)
+        if not rows:
+            return False
+        counted_days = {row["business_date"] for row in rows}
+        if capture_time(path).date().isoformat() in counted_days:
+            return True
+        if parsed.timestamp is None:
+            processed, _ = find_same_day_processed_file(
+                self.settings.processed_dir,
+                parsed.capture_id,
+                path.stat().st_mtime,
+                self.settings.speed_match_seconds,
+            )
+            processed_parsed = parse_capture_filename(processed.name) if processed else None
+            if processed_parsed and processed_parsed.timestamp:
+                if processed_parsed.timestamp.date().isoformat() in counted_days:
+                    return True
+        known = {row["checksum"] for row in rows if row["checksum"]}
+        return bool(known) and self.checksums.get(path) in known
 
     def _candidate_images(self) -> list[Path]:
         candidates: list[Path] = []

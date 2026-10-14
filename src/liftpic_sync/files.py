@@ -35,3 +35,29 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+class ChecksumCache:
+    """sha256 per file, recomputed only when size or mtime change.
+
+    The scan loop runs every few seconds over the same files; without this,
+    every already-known file would be re-read from disk on every pass.
+    """
+
+    MAX_ENTRIES = 20_000
+
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[tuple[int, int], str]] = {}
+
+    def get(self, path: Path) -> str:
+        stat = path.stat()
+        signature = (stat.st_size, stat.st_mtime_ns)
+        key = str(path)
+        cached = self._entries.get(key)
+        if cached and cached[0] == signature:
+            return cached[1]
+        if len(self._entries) >= self.MAX_ENTRIES:
+            self._entries.clear()
+        value = sha256_file(path)
+        self._entries[key] = (signature, value)
+        return value

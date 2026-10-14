@@ -28,6 +28,37 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-052 — Verkaufte Fotos wurden nicht hochgeladen, weil ihre Bildnummer schon einmal vorkam
+Status:     im Code behoben (v0.2.2, 07.10.2026) — **Rollout auf die PCs offen**
+Gesehen:    07.10.2026, Betreiber: „seit zwei Tagen kommen keine Bilder,
+            Stoßzeiten leer, Umsatz 0 — bei allen Parks"
+Beleg:      Tarzans, Druckzähler gegen Uploads: 03.10. 145/127, 04.10. 104/72,
+            06.10. 13/6, 07.10. 2/1. Plose: 348 → 161 → 0 → 1 Uploads, obwohl
+            `Statistic.txt` am 07.10. 11:47 `00043.jpg` verkauft — `00043` war
+            am 03.10. schon hochgeladen. Fahrten: Grünberg 04.10. 608, danach 0;
+            Plose 03.10. 362, 04.10. 75 (weniger Fahrten als Verkäufe).
+            Imst nicht betroffen (Zähler läuft durch) — dort stand am 05.–07.10.
+            der Automat selbst still (Statistic.txt und Druckzähler unverändert).
+Ursache:    Commit `f3b153b` (31.07.2026) prüfte „schon hochgeladen" und „schon
+            gezählt" nur an der Bildnummer, ohne Tag. Kameras, die ihren Zähler
+            jede Nacht neu starten, verwenden jede Nummer täglich wieder; jeder
+            Tag sperrte mehr Nummern für alle Folgetage. Zusätzlich nahm der
+            Scan bei zwei Dateien mit gleicher Nummer im Ordner nur die ältere,
+            und der Statistic-Modus verknüpfte eine Verkaufszeile mit der
+            neuesten Datei dieser Nummer, egal von welchem Tag.
+Behebung:   „Schon hochgeladen" = gleiche Nummer **und** gleicher Inhalt
+            (Prüfsumme). Die 115 Phantom-Duplikate vom 30./31.07., wegen derer
+            `f3b153b` gebaut wurde, hatten alle dieselbe Prüfsumme — der Schutz
+            bleibt. Fahrten: gleiche Nummer am selben Tag oder gleicher Inhalt.
+            Statistic-Modus: Verkaufszeile nur mit einer Datei vom Verkaufstag.
+            Tests: `test_qrcode_reused_capture_number_on_next_day_is_uploaded`,
+            `test_statistic_old_sale_line_never_uploads_todays_unsold_photo`,
+            `test_ride_tracker_counts_reused_number_on_next_day` (schlagen gegen
+            den alten Stand fehl), dazu Schutztests gegen Phantom-Duplikate.
+            Nach dem Update lädt der Agent verkaufte Fotos nach, die noch im
+            Ordner liegen, und zählt liegengebliebene Fahrten nach.
+Wiederkehr: —
+
 ## F-043 — Der Testfoto-Knopf verschwindet, wenn die Kamera lange still war
 Status:     behoben (dashboard2 `4565f80`, 18.08.2026)
 Gesehen:    18.08.2026, Betreiber: „warum habe ich auf dem Testrechner nicht
