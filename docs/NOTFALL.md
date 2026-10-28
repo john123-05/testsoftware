@@ -127,6 +127,7 @@ order by id desc limit 20;
 | `v0.2.0-haertung` | Erste gehärtete Fassung |
 | `v0.2.1` | Zeitstempel und Besitzmeldung behoben — **aktuell im Einsatz** |
 | `v0.2.2` | F-052: Bildnummern, die jede Nacht neu beginnen, sperren keine Uploads/Fahrten mehr |
+| `v0.2.3` | Geschwindigkeit aus dem Speedshot-Protokoll (`SPEED_LOG_FILE`, z. B. `C:\liftpic\speedshot\test.txt`), wenn sie nicht im Dateinamen steht (Weißenfels) |
 
 Repo: `https://github.com/john123-05/testsoftware`
 Der Installer zieht `main`; die Skripte nehmen `-Tag`.

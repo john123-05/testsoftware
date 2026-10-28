@@ -116,6 +116,8 @@ class Settings:
     coin_stats_file: Path | None = None
     coin_log_glob: str = ""
     card_log_glob: str = ""
+    # Speedshot's [SpeedLog] file, for parks where the speed is not in the file name.
+    speed_log_file: Path | None = None
     # Ab wann eine Muenzsorte als knapp gilt. Null Stueck heisst immer "leer".
     coin_low_count: int = 10
     # Wie viele Tage zurueck Zahlungen ausgewertet werden. Die NRI-Protokolle
@@ -296,6 +298,10 @@ class Settings:
             ),
             coin_log_glob=_get(values, "COIN_LOG_GLOB", "").strip(),
             card_log_glob=_get(values, "CARD_LOG_GLOB", "").strip(),
+            speed_log_file=(
+                Path(speed_log_raw) if (speed_log_raw := _get(values, "SPEED_LOG_FILE", "").strip())
+                else None
+            ),
             coin_low_count=int(_get(values, "COIN_LOW_COUNT", "10") or "10"),
             payment_days=int(_get(values, "PAYMENT_DAYS", "7") or "7"),
             viewer_night_start=_get(values, "VIEWER_NIGHT_START", "23:30").strip() or "23:30",

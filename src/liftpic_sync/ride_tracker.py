@@ -8,7 +8,7 @@ from .config import Settings
 from .filename_codec import CaptureName, parse_capture_filename
 from .files import ChecksumCache, is_image, is_stable
 from .identity import build_event_key
-from .speed import capture_time, find_same_day_processed_file, speed_from_processed_name
+from .speed import capture_time, find_same_day_processed_file, speed_from_processed_name, speed_from_speedshot_log
 from .state import RideEvent, StateStore
 
 
@@ -80,6 +80,10 @@ class RideTracker:
                 or (processed_parsed.timestamp if processed_parsed else None)
                 or self._local_mtime(processed_path or raw_path or path)
             )
+            if speed_match.status != "ok" and self.settings.speed_log_file:
+                logged = speed_from_speedshot_log(self.settings.speed_log_file, parsed.capture_id, captured_at.date())
+                if logged.status == "ok":
+                    speed_match = logged
             business_date = captured_at.date().isoformat()
             source = "processed" if processed_path and self._same_folder(path.parent, self.settings.processed_dir) else "raw"
             event_key = build_event_key(

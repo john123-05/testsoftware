@@ -10,7 +10,7 @@ from .config import Settings
 from .filename_codec import build_legacy_filename, parse_capture_filename
 from .files import ChecksumCache, is_image, is_stable
 from .identity import build_event_key
-from .speed import capture_time, find_same_day_processed_file, speed_from_processed_name
+from .speed import capture_time, find_same_day_processed_file, speed_from_processed_name, speed_from_speedshot_log
 from .state import PhotoEvent, StateStore
 
 # A sold-photo line in a Statistic.txt-style sale log, e.g.:
@@ -135,6 +135,15 @@ class FolderScanner:
                 reference_path.stat().st_mtime,
                 tz=timezone.utc,
             )
+            if speed_match.status != "ok" and self.settings.speed_log_file:
+                local_day = (
+                    parsed.timestamp
+                    or (reference_parsed.timestamp if reference_parsed else None)
+                    or datetime.fromtimestamp(reference_path.stat().st_mtime)
+                ).date()
+                logged = speed_from_speedshot_log(self.settings.speed_log_file, parsed.capture_id, local_day)
+                if logged.status == "ok":
+                    speed_match = logged
             legacy = build_legacy_filename(
                 customer_code=self.settings.customer_code,
                 capture_id=parsed.capture_id,

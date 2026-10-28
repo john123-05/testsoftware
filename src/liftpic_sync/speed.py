@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from .filename_codec import parse_capture_filename
@@ -11,6 +11,19 @@ from .filename_codec import parse_capture_filename
 SPEED_LOG_RE = re.compile(r"Measured speed:\s*(?P<speed>\d+(?:[,.]\d+)?)\s*km/h", re.I)
 EVENT_RE = re.compile(r"Event started at\s+(?P<time>\d{2}:\d{2}:\d{2})", re.I)
 NEWEST_FILE_RE = re.compile(r"Newest file is\s+(?P<file>\S+)", re.I)
+# Speedshot's [SpeedLog] file (Weissenfels: C:\liftpic\speedshot\test.txt), one line per ride:
+#   00092.jpg;28.10.2026 16:55:00;7,81 m/s(=28,13 km/h);
+# Used where Speedshot runs with SaveInfoToImageFilename=0, i.e. the speed is only painted
+# into the photo and never reaches the file name.
+SPEEDSHOT_LINE_RE = re.compile(
+    r"^\s*t?(?P<capture>\d{1,8})\.jpe?g;(?P<day>\d{2}\.\d{2}\.\d{4})\s+\d{2}:\d{2}:\d{2};"
+    r"[^;]*?\(=\s*(?P<kmh>\d+(?:[,.]\d+)?)\s*km/h",
+    re.I,
+)
+# The log only ever grows (22 MB after a few seasons); the end holds every ride still waiting
+# for an upload, so only that part is read - and only again once the file has changed.
+SPEEDSHOT_TAIL_BYTES = 2_000_000
+_speedshot_cache: dict[str, tuple[int, int, dict[tuple[str, date], float]]] = {}
 
 
 @dataclass(frozen=True)
@@ -112,6 +125,49 @@ def parse_aidatest_log_tail(lines: list[str]) -> list[SpeedMatch]:
             matches.append(SpeedMatch(current_speed, "ok", "aidatest_log", None))
             current_speed = None
     return matches
+
+
+def parse_speedshot_log(lines: list[str]) -> dict[tuple[str, date], float]:
+    """(capture_id, day) -> km/h. The counter restarts daily, so the number alone is not unique."""
+    entries: dict[tuple[str, date], float] = {}
+    for line in lines:
+        match = SPEEDSHOT_LINE_RE.match(line)
+        if not match:
+            continue
+        try:
+            day = datetime.strptime(match.group("day"), "%d.%m.%Y").date()
+        except ValueError:
+            continue
+        entries[(match.group("capture").zfill(5), day)] = float(match.group("kmh").replace(",", "."))
+    return entries
+
+
+def speed_from_speedshot_log(log_path: Path | None, capture_id: str, day: date) -> SpeedMatch:
+    if log_path is None:
+        return SpeedMatch(None, "missing", "speedshot_log", None)
+    try:
+        stat = log_path.stat()
+    except OSError:
+        return SpeedMatch(None, "missing", "speedshot_log", None)
+    key = str(log_path)
+    cached = _speedshot_cache.get(key)
+    if cached and cached[0] == stat.st_size and cached[1] == stat.st_mtime_ns:
+        entries = cached[2]
+    else:
+        try:
+            with log_path.open("rb") as handle:
+                if stat.st_size > SPEEDSHOT_TAIL_BYTES:
+                    handle.seek(stat.st_size - SPEEDSHOT_TAIL_BYTES)
+                    handle.readline()  # drop the partial first line
+                text = handle.read().decode("latin-1")
+        except OSError:
+            return SpeedMatch(None, "missing", "speedshot_log", None)
+        entries = parse_speedshot_log(text.splitlines())
+        _speedshot_cache[key] = (stat.st_size, stat.st_mtime_ns, entries)
+    speed = entries.get((capture_id.zfill(5), day))
+    if speed is None:
+        return SpeedMatch(None, "missing", "speedshot_log", None)
+    return SpeedMatch(speed, "ok", "speedshot_log", None)
 
 
 def timestamp_from_path(path: Path) -> datetime:
