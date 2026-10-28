@@ -157,15 +157,31 @@ Write-Host ""
 & $VenvPy -m liftpic_sync.cli preflight --env $EnvPath
 Write-Host ""
 
-if ($dienstVorhanden)  { Start-Service -Name $Aufgabe }
-elseif ($aufgabeVorhanden) { Start-ScheduledTask -TaskName $Aufgabe }
-else { Write-Warning "Weder Dienst noch Aufgabe gefunden - der Agent muss von Hand gestartet werden." }
+function Get-Agenten {
+  @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*liftpic_sync*" })
+}
 
-Start-Sleep -Seconds 6
-$laufend = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-             Where-Object { $_.CommandLine -like "*liftpic_sync*" })
+# Ein Start direkt nach dem Anhalten wird von der Aufgabenplanung gelegentlich
+# stillschweigend verworfen (Weissenfels, 28.10.2026: zweimal "Ready" und kein
+# Agent). Deshalb bis zu 60 s pruefen und den Start notfalls wiederholen.
+$laufend = @()
+for ($versuch = 1; $versuch -le 3 -and $laufend.Count -eq 0; $versuch++) {
+  if ($dienstVorhanden)  { Start-Service -Name $Aufgabe }
+  elseif ($aufgabeVorhanden) { Start-ScheduledTask -TaskName $Aufgabe }
+  else { Write-Warning "Weder Dienst noch Aufgabe gefunden - der Agent muss von Hand gestartet werden."; break }
+  for ($i = 0; $i -lt 20 -and $laufend.Count -eq 0; $i++) {
+    Start-Sleep -Seconds 1
+    $laufend = Get-Agenten
+  }
+}
 Write-Host ""
+Start-Sleep -Seconds 3
+$laufend = Get-Agenten
 Write-Host "Fertig. Laufende Agenten-Prozesse: $($laufend.Count) (Starter + Interpreter = ein Agent)"
+if ($laufend.Count -eq 0) {
+  Write-Warning "Der Agent laeuft NICHT. Von Hand starten: Start-ScheduledTask $Aufgabe"
+}
 if ($sicherung) {
   Write-Host "Rueckweg:  .\rollback_lokal.ps1 -Sicherung `"$sicherung`""
 }
