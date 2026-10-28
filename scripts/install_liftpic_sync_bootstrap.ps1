@@ -16,14 +16,32 @@ function Assert-Admin {
   }
 }
 
+function Test-RealPython([string]$Path) {
+  # Der Platzhalter aus dem Microsoft Store (...\WindowsApps\python.exe) ist kein Python:
+  # er oeffnet nur den Store. Nur Programme zaehlen, die wirklich eine Version melden.
+  if (-not $Path -or $Path -like "*\WindowsApps\*") { return $false }
+  try {
+    $out = & $Path --version 2>&1
+    return ($LASTEXITCODE -eq 0 -and "$out" -match "Python 3\.(1[1-9]|[2-9][0-9])")
+  } catch { return $false }
+}
+
 function Get-Python {
-  $python = Get-Command python -ErrorAction SilentlyContinue
-  if ($python) { return $python.Source }
-
-  $py = Get-Command py -ErrorAction SilentlyContinue
-  if ($py) { return $py.Source }
-
+  foreach ($name in @("python", "py")) {
+    foreach ($cmd in @(Get-Command $name -All -ErrorAction SilentlyContinue)) {
+      if (Test-RealPython $cmd.Source) { return $cmd.Source }
+    }
+  }
+  foreach ($candidate in @(
+      "$env:ProgramFiles\Python312\python.exe",
+      "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe")) {
+    if ((Test-Path $candidate) -and (Test-RealPython $candidate)) { return $candidate }
+  }
   return $null
+}
+
+function Refresh-Path {
+  $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
 }
 
 function Ensure-Python {
@@ -33,11 +51,21 @@ function Ensure-Python {
   $winget = Get-Command winget -ErrorAction SilentlyContinue
   if ($winget) {
     Write-Host "Python nicht gefunden. Installiere Python 3.12 mit winget..."
-    & $winget.Source install --id Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
-    $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
+    & $winget.Source install --id Python.Python.3.12 -e --silent --scope machine --accept-package-agreements --accept-source-agreements
+    Refresh-Path
     $python = Get-Python
     if ($python) { return $python }
   }
+
+  # Ohne winget (aeltere Windows-10-PCs): offizielles Installationsprogramm von python.org, still fuer alle Benutzer.
+  Write-Host "Lade Python 3.12 von python.org und installiere es..."
+  $installer = Join-Path $env:TEMP "python-3.12.10-amd64.exe"
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  Invoke-WebRequest "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" -OutFile $installer
+  Start-Process -FilePath $installer -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
+  Refresh-Path
+  $python = Get-Python
+  if ($python) { return $python }
 
   Start-Process "https://www.python.org/downloads/windows/"
   throw "Python konnte nicht automatisch installiert werden. Bitte Python 3.11 oder neuer installieren und diese Datei danach erneut starten."

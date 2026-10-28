@@ -28,6 +28,20 @@ Protokolldateien, Datenbankabfragen und Commit-Beschreibungen.
 
 # Offen
 
+## F-053 — Installer hielt den Microsoft-Store-Platzhalter für Python
+Status:     behoben (28.10.2026)
+Gesehen:    28.10.2026, Einrichtung Allwetterrodelbahn Weißenfels (weissenfels-pc1)
+Beleg:      „Python wurde nicht gefunden; ohne Argumente ausführen, um aus dem
+            Microsoft Store zu installieren …", danach
+            „C:\liftpic\liftpic-sync\.venv\Scripts\python.exe … nicht erkannt".
+Ursache:    `Get-Command python` findet auf frischem Windows den Platzhalter
+            `…\WindowsApps\python.exe`. Der Installer nahm ihn als Python, übersprang
+            winget, und das Anlegen der venv scheiterte still.
+Behebung:   `Test-RealPython` verlangt eine echte Versionsmeldung (3.11+) und
+            ignoriert `WindowsApps`; ohne winget lädt der Installer Python 3.12.10
+            von python.org und installiert es still für alle Benutzer.
+Wiederkehr: —
+
 ## F-052 — Verkaufte Fotos wurden nicht hochgeladen, weil ihre Bildnummer schon einmal vorkam
 Status:     im Code behoben (v0.2.2, 07.10.2026) — **Rollout auf die PCs offen**
 Gesehen:    07.10.2026, Betreiber: „seit zwei Tagen kommen keine Bilder,
