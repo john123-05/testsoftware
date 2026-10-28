@@ -427,3 +427,16 @@ def test_uploader_is_never_restartable(tmp_path: Path):
     assert "uploader" not in keys
     assert "liftpic-sync" not in keys
     assert find_program(settings, "uploader") is None
+
+
+def test_viewer_without_exclamation_mark_counts_as_running(monkeypatch):
+    from liftpic_sync import system_probe
+
+    monkeypatch.setattr(
+        system_probe, "_run_ps",
+        lambda script, timeout=20.0: "PhotoViewerFacebook|4242|28.10.2026 23:10:00\njpeg4web_v391|17|28.10.2026 09:00:00\n",
+    )
+    probes = {p.name: p for p in system_probe.probe_processes(system_probe.DEFAULT_PROCESSES)}
+    assert probes["Verkaufsprogramm"].status == "ok"
+    assert probes["Verkaufsprogramm"].key == "proc:PhotoViewerFacebook!"
+    assert probes["Lichtschranke"].status == "off"

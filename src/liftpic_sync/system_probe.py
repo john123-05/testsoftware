@@ -373,9 +373,10 @@ def _human(minutes: int | None) -> str:
 # so they are one device here. Listing them separately would report "Kamera
 # ausgefallen" on every machine that happens to use the other program.
 DEFAULT_PROCESSES: list[tuple[str, str, str, str]] = [
-    ("PhotoViewerFacebook!", "Verkaufsprogramm", "PhotoViewer",
+    # Imst: "PhotoViewerFacebook!", Tom der Tiger (28.10.2026): "PhotoViewerFacebook".
+    ("PhotoViewerFacebook!|PhotoViewerFacebook", "Verkaufsprogramm", "PhotoViewer",
      "Bildschirm am Automaten: Fotos, Zahlung, Druck."),
-    ("AidaTest", "Lichtschranke", "AidaTest",
+    ("AidaTest|Speedshot", "Lichtschranke", "AidaTest",
      "Erkennt Gäste und löst die Kamera aus."),
     ("3gerTis_v70|camera26", "Kamera-Software", "3GerTis",
      "Nimmt das Foto auf."),
@@ -417,7 +418,10 @@ def collect_probes(settings: Settings) -> list[dict]:
         except Exception as exc:  # a probe must never break the heartbeat
             log.debug("probe %s failed: %s", getattr(fn, "__name__", fn), exc)
 
-    guard(probe_processes, DEFAULT_PROCESSES)
+    # Anlagen ohne eigene Kamera-/Lichtschranken-Software auf diesem PC (Tom der Tiger:
+    # Kamera separat) blenden diese Kacheln aus, statt dauerhaft "Nicht gestartet" zu melden.
+    skip = {name.lower() for name in settings.probe_skip_programs}
+    guard(probe_processes, [w for w in DEFAULT_PROCESSES if w[1].lower() not in skip])
     if settings.terminal_host:
         guard(probe_tcp, settings.terminal_host, settings.terminal_port,
               "Kartenterminal", "ZVT")

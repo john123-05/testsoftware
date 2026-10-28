@@ -118,6 +118,9 @@ class Settings:
     card_log_glob: str = ""
     # Speedshot's [SpeedLog] file, for parks where the speed is not in the file name.
     speed_log_file: Path | None = None
+    # Program tiles to leave out of the status page, by plain name
+    # ("Lichtschranke,Kamera-Software"), for programs that don't run on this PC.
+    probe_skip_programs: tuple[str, ...] = ()
     # Ab wann eine Muenzsorte als knapp gilt. Null Stueck heisst immer "leer".
     coin_low_count: int = 10
     # Wie viele Tage zurueck Zahlungen ausgewertet werden. Die NRI-Protokolle
@@ -301,6 +304,11 @@ class Settings:
             speed_log_file=(
                 Path(speed_log_raw) if (speed_log_raw := _get(values, "SPEED_LOG_FILE", "").strip())
                 else None
+            ),
+            probe_skip_programs=tuple(
+                item.strip()
+                for item in _get(values, "PROBE_SKIP_PROGRAMS", "").replace(";", ",").split(",")
+                if item.strip()
             ),
             coin_low_count=int(_get(values, "COIN_LOW_COUNT", "10") or "10"),
             payment_days=int(_get(values, "PAYMENT_DAYS", "7") or "7"),
