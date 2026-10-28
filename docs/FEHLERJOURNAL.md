@@ -40,6 +40,9 @@ Ursache:    `Get-Command python` findet auf frischem Windows den Platzhalter
 Behebung:   `Test-RealPython` verlangt eine echte Versionsmeldung (3.11+) und
             ignoriert `WindowsApps`; ohne winget lädt der Installer Python 3.12.10
             von python.org und installiert es still für alle Benutzer.
+            Nachtrag gleicher Tag: die winget-Ausgabe landete im Rückgabewert von
+            `Ensure-Python` (PowerShell gibt jede Ausgabe zurück) → `| Out-Host`,
+            und nur der letzte Wert zählt als Pfad.
 Wiederkehr: —
 
 ## F-052 — Verkaufte Fotos wurden nicht hochgeladen, weil ihre Bildnummer schon einmal vorkam

@@ -51,7 +51,8 @@ function Ensure-Python {
   $winget = Get-Command winget -ErrorAction SilentlyContinue
   if ($winget) {
     Write-Host "Python nicht gefunden. Installiere Python 3.12 mit winget..."
-    & $winget.Source install --id Python.Python.3.12 -e --silent --scope machine --accept-package-agreements --accept-source-agreements
+    # Out-Host: sonst landet die winget-Ausgabe im Rueckgabewert der Funktion (F-053).
+    & $winget.Source install --id Python.Python.3.12 -e --silent --scope machine --accept-package-agreements --accept-source-agreements | Out-Host
     Refresh-Path
     $python = Get-Python
     if ($python) { return $python }
@@ -61,8 +62,8 @@ function Ensure-Python {
   Write-Host "Lade Python 3.12 von python.org und installiere es..."
   $installer = Join-Path $env:TEMP "python-3.12.10-amd64.exe"
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  Invoke-WebRequest "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" -OutFile $installer
-  Start-Process -FilePath $installer -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait
+  Invoke-WebRequest "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe" -OutFile $installer | Out-Null
+  Start-Process -FilePath $installer -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0" -Wait | Out-Null
   Refresh-Path
   $python = Get-Python
   if ($python) { return $python }
@@ -293,7 +294,8 @@ Write-Host "2/6 Kopiere Dateien nach $InstallDir..."
 Copy-Item -Path (Join-Path $SourceDir.FullName "*") -Destination $InstallDir -Recurse -Force
 
 Write-Host "3/6 Pruefe Python..."
-$SystemPython = Ensure-Python
+$SystemPython = @(Ensure-Python)[-1]
+Write-Host "   Python: $SystemPython"
 if ($SystemPython.EndsWith("py.exe")) {
   & $SystemPython -3 -m venv $VenvDir
 } else {
