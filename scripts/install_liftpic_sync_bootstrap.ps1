@@ -52,7 +52,13 @@ function Ensure-Python {
   if ($winget) {
     Write-Host "Python nicht gefunden. Installiere Python 3.12 mit winget..."
     # Out-Host: sonst landet die winget-Ausgabe im Rueckgabewert der Funktion (F-053).
-    & $winget.Source install --id Python.Python.3.12 -e --silent --scope machine --accept-package-agreements --accept-source-agreements | Out-Host
+    # try/catch: winget kann vorhanden, aber nicht startbar sein ("Das System kann auf
+    # die Datei nicht zugreifen", Edelwies 29.10.2026) - dann weiter mit python.org.
+    try {
+      & $winget.Source install --id Python.Python.3.12 -e --silent --scope machine --accept-package-agreements --accept-source-agreements | Out-Host
+    } catch {
+      Write-Host "winget ging nicht ($($_.Exception.Message.Trim())) - nehme python.org."
+    }
     Refresh-Path
     $python = Get-Python
     if ($python) { return $python }
