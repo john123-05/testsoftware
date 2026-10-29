@@ -37,12 +37,21 @@ Copy-Item $EnvPath "$EnvPath.bak-$stempel"
 # ------------------------------------------------------------ 1/5 Quellen finden
 Write-Host "1/5 Suche Zahlungs- und Speed-Quellen..."
 $werte = [ordered]@{}
-$settings = "C:\liftpic\samuel_neu\Settings.xml"
+# Ordner des Verkaufsprogramms: der laufende PhotoViewer zaehlt (z. B. Eulenblitz: C:\liftpic\samuel_neu_test),
+# sonst der Standard C:\liftpic\samuel_neu.
+$viewerDir = "C:\liftpic\samuel_neu"
+$laufenderViewer = Get-Process -Name "PhotoViewerFacebook*" -ErrorAction SilentlyContinue | Where-Object { $_.Path } | Select-Object -First 1
+if ($laufenderViewer) { $viewerDir = Split-Path $laufenderViewer.Path }
+Write-Host "   Verkaufsprogramm-Ordner: $viewerDir"
+if ($viewerDir -ne "C:\liftpic\samuel_neu") {
+  Write-Warning "Verkaufsprogramm laeuft NICHT aus samuel_neu. Im CRM bei diesem PC Statistic.txt/PrintCount.txt auf $viewerDir umstellen."
+}
+$settings = Join-Path $viewerDir "Settings.xml"
 if (Test-Path $settings) { $werte["VIEWER_SETTINGS_XML"] = $settings }
-$coinStats = "C:\liftpic\samuel_neu\CoinStats.txt"
+$coinStats = Join-Path $viewerDir "CoinStats.txt"
 if (Test-Path $coinStats) { $werte["COIN_STATS_FILE"] = $coinStats }
-if (Get-ChildItem "C:\liftpic\samuel_neu\Log" -Filter "NRI.CoinCharger_*.txt" -ErrorAction SilentlyContinue | Select-Object -First 1) {
-  $werte["COIN_LOG_GLOB"] = "C:\liftpic\samuel_neu\Log\NRI.CoinCharger_*.txt"
+if (Get-ChildItem (Join-Path $viewerDir "Log") -Filter "NRI.CoinCharger_*.txt" -ErrorAction SilentlyContinue | Select-Object -First 1) {
+  $werte["COIN_LOG_GLOB"] = (Join-Path $viewerDir "Log\NRI.CoinCharger_*.txt")
 }
 
 foreach ($ini in @("C:\liftpic\3GerTis\Speedshot.ini", "C:\liftpic\speedshot\Speedshot.ini")) {
@@ -122,8 +131,17 @@ Stop-ScheduledTask -TaskName LiftpicSync -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 5
 Get-Agenten | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 3
+# Grund fuer "Agent startet nach dem Skript nicht" (4 PCs am 29.10.): Die Aufgabe galt nach dem Beenden noch als
+# "Wird ausgefuehrt" und Start-ScheduledTask wurde stillschweigend ignoriert (neue Instanz = ignorieren).
+# Darum warten, bis die Aufgabe wirklich "Bereit" ist, notfalls hart beenden.
+for ($w = 0; $w -lt 20 -and (Get-ScheduledTask -TaskName LiftpicSync).State -eq 'Running'; $w++) { Start-Sleep -Seconds 1 }
+if ((Get-ScheduledTask -TaskName LiftpicSync).State -eq 'Running') {
+  & schtasks.exe /End /TN LiftpicSync | Out-Null
+  Start-Sleep -Seconds 3
+}
 $agenten = @()
 for ($i = 1; $i -le 3 -and $agenten.Count -eq 0; $i++) {
+  if ($i -gt 1) { & schtasks.exe /End /TN LiftpicSync | Out-Null; Start-Sleep -Seconds 3 }
   Start-ScheduledTask -TaskName LiftpicSync
   for ($j = 0; $j -lt 20 -and $agenten.Count -eq 0; $j++) {
     Start-Sleep -Seconds 1
