@@ -195,6 +195,12 @@ Wrong inherited values silently ship otherwise.
 reliably gets corrupted/reordered over AnyDesk's remote session. Always a
 single line, `;`-separated, no backtick line continuations.
 
+**Personalisierung images** (every new PC): run `scripts/bilder_export.ps1 -Slug <slug>`
+after `einrichten_nach_install.ps1`. It zips overlay/logo/background (the three
+dashboard slots), every image Settings.xml references and the program-folder
+images into `Downloads\<slug>-bilder.zip`; pull it to the Mac via AnyDesk and
+store them as the current state on the dashboard's Personalisierung page.
+
 **Liftpic Sync resilience** (do this for every new PC, not just when asked):
 after the bootstrap installer, also run `scripts/watchdog_einrichten.ps1` as
 Administrator. The scheduled task's own "restart on failure" does NOT catch
