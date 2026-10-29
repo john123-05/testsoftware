@@ -201,7 +201,8 @@ Administrator. The scheduled task's own "restart on failure" does NOT catch
 a clean exit (venv's `python.exe` is a starter stub that exits 0 the instant
 it hands off to the real interpreter - Task Scheduler sees that as success,
 not failure) - a process that dies mid-session otherwise stays dead until
-the next full reboot. This is NOT part of the bootstrap script; it has to be
-run separately. Confirmed needed in practice: Plose's agent died exactly
+the next full reboot. This is NOT part of the bootstrap script, but
+`scripts/einrichten_nach_install.ps1` (step 5/5, since 29.10.2026) registers it
+too - so the standard one-liner bootstrap + einrichten covers it. Confirmed needed in practice: Plose's agent died exactly
 this way mid-session today and sat dead for ~45 minutes before anyone
 noticed.

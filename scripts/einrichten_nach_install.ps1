@@ -15,6 +15,9 @@
       neu starten - sonst gilt der neue QR erst nach dem naechsten Neustart.
     * Agent neu starten und pruefen, dass er wirklich laeuft (ein Start direkt
       nach dem Anhalten wird gelegentlich verworfen).
+    * Waechter LiftpicSyncWatchdog einrichten: startet den Agenten alle 5 Minuten
+      neu, falls keiner laeuft. Die Selbstheilung der Aufgabe greift nicht, weil
+      der venv-Starter mit Code 0 endet (siehe watchdog_einrichten.ps1).
   Am Ende steht ein Bericht zum Abfotografieren.
 .EXAMPLE
   .\einrichten_nach_install.ps1 -Slug doberan
@@ -31,8 +34,8 @@ if (-not (Test-Path $EnvPath)) { throw "Keine .env unter $EnvPath - zuerst den B
 $stempel = Get-Date -Format "yyyyMMdd-HHmm"
 Copy-Item $EnvPath "$EnvPath.bak-$stempel"
 
-# ------------------------------------------------------------ 1/4 Quellen finden
-Write-Host "1/4 Suche Zahlungs- und Speed-Quellen..."
+# ------------------------------------------------------------ 1/5 Quellen finden
+Write-Host "1/5 Suche Zahlungs- und Speed-Quellen..."
 $werte = [ordered]@{}
 $settings = "C:\liftpic\samuel_neu\Settings.xml"
 if (Test-Path $settings) { $werte["VIEWER_SETTINGS_XML"] = $settings }
@@ -69,8 +72,8 @@ $zeilen = @(Get-Content $EnvPath | Where-Object { -not $werte.Contains((($_ -spl
 foreach ($k in $werte.Keys) { $zeilen += "$k=$($werte[$k])" }
 [IO.File]::WriteAllLines($EnvPath, $zeilen)
 
-# ------------------------------------------------------------ 2/4 QR-Ziel
-Write-Host "2/4 QR-Ziel..."
+# ------------------------------------------------------------ 2/5 QR-Ziel
+Write-Host "2/5 QR-Ziel..."
 $qrNeu = "https://liftpictures-fotos.de/$Slug/claim?code="
 $qrAlt = $null
 $qrGeaendert = $false
@@ -90,9 +93,9 @@ if (Test-Path $settings) {
   }
 }
 
-# ------------------------------------------------------------ 3/4 Verkaufsprogramm
+# ------------------------------------------------------------ 3/5 Verkaufsprogramm
 if ($qrGeaendert -and -not $OhneViewerNeustart) {
-  Write-Host "3/4 Starte das Verkaufsprogramm neu (neuer QR)..."
+  Write-Host "3/5 Starte das Verkaufsprogramm neu (neuer QR)..."
   $v = Get-Process -Name "PhotoViewerFacebook*" -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($v -and $v.Path) {
     $exe = $v.Path
@@ -106,11 +109,11 @@ if ($qrGeaendert -and -not $OhneViewerNeustart) {
     Write-Warning "Verkaufsprogramm laeuft nicht - der neue QR gilt ab dem naechsten Start."
   }
 } else {
-  Write-Host "3/4 Verkaufsprogramm: kein Neustart noetig."
+  Write-Host "3/5 Verkaufsprogramm: kein Neustart noetig."
 }
 
-# ------------------------------------------------------------ 4/4 Agent
-Write-Host "4/4 Starte den Agenten neu..."
+# ------------------------------------------------------------ 4/5 Agent
+Write-Host "4/5 Starte den Agenten neu..."
 function Get-Agenten {
   @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like "*liftpic_sync*" })
@@ -127,6 +130,30 @@ for ($i = 1; $i -le 3 -and $agenten.Count -eq 0; $i++) {
     $agenten = Get-Agenten
   }
 }
+
+# ------------------------------------------------------------ 5/5 Waechter
+Write-Host "5/5 Richte den Waechter ein..."
+$wdSkript = "C:\liftpic\watchdog.ps1"
+$wdInhalt = @'
+# Von einrichten_nach_install.ps1 erzeugt. Prueft, ob der Agent laeuft; sonst Neustart.
+$laeuft = Get-CimInstance Win32_Process -Filter "Name='python.exe'" -EA SilentlyContinue |
+  Where-Object { $_.CommandLine -like '*liftpic_sync*' }
+if (-not $laeuft) {
+  Start-ScheduledTask -TaskName 'LiftpicSync'
+}
+'@
+Set-Content -Path $wdSkript -Value $wdInhalt -Encoding ASCII
+$wdAktion = New-ScheduledTaskAction -Execute "powershell.exe" `
+  -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$wdSkript`""
+$wdAusloeser = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
+try {
+  Register-ScheduledTask -TaskName "LiftpicSyncWatchdog" -Force -User "SYSTEM" -RunLevel Highest `
+    -Action $wdAktion -Trigger $wdAusloeser `
+    -Description "Startet LiftpicSync neu, falls kein Agent laeuft (venv-Starter-Stub umgeht die Selbstheilung)." | Out-Null
+} catch {
+  Write-Warning "Waechter konnte nicht eingerichtet werden: $_"
+}
+$waechter = Get-ScheduledTask -TaskName "LiftpicSyncWatchdog" -ErrorAction SilentlyContinue
 
 # ------------------------------------------------------------ Bericht
 Write-Host ""
@@ -150,8 +177,10 @@ Get-Process | Where-Object { $_.Path -like 'C:\liftpic\*' -and $_.Path -notlike 
   Sort-Object Name -Unique | ForEach-Object { Write-Host "  $($_.Name)  $($_.Path)" }
 if (Test-Path $VenvPy) { & $VenvPy -m liftpic_sync.cli preflight --env $EnvPath }
 Write-Host ""
+if ($waechter) { Write-Host "Waechter: eingerichtet (LiftpicSyncWatchdog, alle 5 Minuten)" }
+else { Write-Warning "Waechter NICHT eingerichtet - watchdog_einrichten.ps1 von Hand ausfuehren." }
 if ($agenten.Count) {
   Write-Host "Agent laeuft ($($agenten.Count) Prozesse). Fertig." -ForegroundColor Green
 } else {
-  Write-Warning "Der Agent laeuft NICHT. Von Hand: Start-ScheduledTask LiftpicSync"
+  Write-Warning "Der Agent laeuft NICHT. Der Waechter startet ihn in spaetestens 5 Minuten; sofort: Start-ScheduledTask LiftpicSync"
 }
