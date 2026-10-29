@@ -69,3 +69,12 @@ def test_gruenberg_t_prefix_names():
     a = build_legacy_filename(customer_code="5533", capture_id=processed.capture_id, captured_at=datetime(2026, 10, 4))
     b = build_legacy_filename(customer_code="5533", capture_id="00056", captured_at=datetime(2026, 10, 4))
     assert a.file_code == "0056" and a.filename == b.filename
+
+
+def test_letter_prefix_b_like_fraekigaudi():
+    # Fräkigaudi (Wastra): Kamera schreibt B00161.jpg, das Verkaufsprogramm nimmt die Stellen
+    # 3,4,5,6 des Dateinamens (der Buchstabe zählt mit) = "0161". Hier ohne Buchstaben: 2,3,4,5.
+    raw = parse_capture_filename("B00161.jpg")
+    assert raw is not None and raw.capture_id == "00161"
+    name = build_legacy_filename(customer_code="2219", capture_id=raw.capture_id, captured_at=datetime(2026, 10, 17))
+    assert name.file_code == "0161"

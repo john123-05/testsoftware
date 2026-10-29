@@ -8,10 +8,12 @@ from pathlib import Path
 
 LEGACY_RE = re.compile(r"^(?P<legacy>\d{4})(?P<time>\d{8})(?P<file>\d{4})\.jpe?g$", re.I)
 PROCESSED_RE = re.compile(
-    r"^t?(?P<capture>\d{4,5})_?(?P<stamp>\d{14})(?P<speed>\d{4})\.jpe?g$",
+    r"^[a-z]?(?P<capture>\d{4,5})_?(?P<stamp>\d{14})(?P<speed>\d{4})\.jpe?g$",
     re.I,
 )
-RAW_RE = re.compile(r"^t?(?P<capture>\d{1,8})\.jpe?g$", re.I)
+# Ein Buchstabe vor der Nummer ist erlaubt: "t" (Imst, Doberan) oder "B" (Fräkigaudi). Das
+# Verkaufsprogramm zählt ihn bei CodePositionsInFilename mit - dort also 3,4,5,6, hier 2,3,4,5.
+RAW_RE = re.compile(r"^[a-z]?(?P<capture>\d{1,8})\.jpe?g$", re.I)
 
 
 @dataclass(frozen=True)

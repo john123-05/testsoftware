@@ -16,7 +16,7 @@ NEWEST_FILE_RE = re.compile(r"Newest file is\s+(?P<file>\S+)", re.I)
 # Used where Speedshot runs with SaveInfoToImageFilename=0, i.e. the speed is only painted
 # into the photo and never reaches the file name.
 SPEEDSHOT_LINE_RE = re.compile(
-    r"^\s*t?(?P<capture>\d{1,8})\.jpe?g;(?P<day>\d{2}\.\d{2}\.\d{4})\s+\d{2}:\d{2}:\d{2};"
+    r"^\s*[a-z]?(?P<capture>\d{1,8})\.jpe?g;(?P<day>\d{2}\.\d{2}\.\d{4})\s+\d{2}:\d{2}:\d{2};"
     r"[^;]*?\(=\s*(?P<kmh>\d+(?:[,.]\d+)?)\s*km/h",
     re.I,
 )
