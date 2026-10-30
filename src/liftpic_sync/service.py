@@ -23,6 +23,7 @@ from .camera_settings import kamera_status, schreibe_werte, xml_pfad_fuer
 from .payments import read_payments
 from .system_probe import collect_probes
 from .test_photo_upload import NichtZuordenbar, lade_testfoto_hoch
+from .viewer_qr import apply_qr
 from .supabase_client import SupabaseIngestClient
 from .uploader import UploadWorker
 from .viewer_control import (
@@ -831,6 +832,37 @@ class LiftpicService:
             log.warning("payment scan failed: %s", exc)
         return self._payment_cache
 
+    def _handle_qr(self, request_id: str, mode: str, request: dict) -> None:
+        """QR-Auftrag aus dem CRM: Settings.xml anpassen, bei "now" Viewer neu starten."""
+        if not self.store.auftrag_beanspruchen(request_id):
+            self._pending_restart_ack = request_id or "done"
+            return
+        url = request.get("url")
+        enabled = request.get("enabled")
+        ergebnis = apply_qr(
+            self.settings.viewer_settings_xml,
+            str(url) if isinstance(url, str) and url.strip() else None,
+            enabled if isinstance(enabled, bool) else None,
+        )
+        if not ergebnis.ok:
+            self.store.record_health_event(
+                kind="restart", severity="warning",
+                summary=f"QR-Auftrag abgelehnt: {ergebnis.reason}", detail=f"Auftrag {request_id}",
+            )
+            self._pending_restart_ack = request_id or "rejected"
+            return
+        detail = f"Link {ergebnis.old_url} -> {ergebnis.new_url}, QR-Druck {ergebnis.old_enabled} -> {ergebnis.new_enabled}"
+        if ergebnis.changed and mode == "now" and find_program(self.settings, "viewer") is not None:
+            outcome = restart_program(self.settings, "viewer")
+            detail += f"; {outcome.reason}"
+        elif ergebnis.changed:
+            detail += "; gilt ab dem naechsten Start des Verkaufsprogramms"
+        self.store.record_health_event(
+            kind="restart", severity="info",
+            summary="QR umgestellt" if ergebnis.changed else "QR stand schon so", detail=detail,
+        )
+        self._pending_restart_ack = request_id or "done"
+
     def _handle_test_photo(self, request_id: str, mode: str) -> None:
         """Ein vom Dashboard beauftragtes Testfoto ausloesen.
 
@@ -1180,6 +1212,12 @@ class LiftpicService:
         # quittiert ist; behandelt wird es aber getrennt.
         if target == "testphoto":
             self._handle_test_photo(request_id, mode)
+            return
+
+        # QR-Ziel / QR-Verkauf umstellen (W5): aendert nur zwei Felder der
+        # Settings.xml, danach - nur bei "now" - Neustart des Verkaufsprogramms.
+        if target == "qr":
+            self._handle_qr(request_id, mode, request)
             return
 
         if find_program(self.settings, target) is None:
