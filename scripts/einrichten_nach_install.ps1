@@ -190,7 +190,7 @@ elseif ($null -eq $qrAlt) { Write-Host "QR: keine Settings.xml / kein QrCodeBegi
 elseif ($qrGeaendert) { Write-Host "QR: $qrAlt  ->  $qrNeu" }
 else { Write-Host "QR: stand schon richtig ($qrNeu)" }
 if (Test-Path $settings) {
-  # Bildcode (CustomerNumber + Stellen im Dateinamen) – muss im CRM eingetragen werden, sonst landen Fotos bei Imst.
+  # Bildcode (CustomerNumber + Stellen im Dateinamen) - muss im CRM eingetragen werden, sonst landen Fotos bei Imst.
   Select-String -Path $settings -Pattern '<(CustomerNumber|CustomerNumberPositions|CodePositions|PricePrint|PriceEmail|EnablePrint|EnableEmail|EnableCreditCardPayment|EnableQrCodePrintButtons|QrCodeBeginningString|LogoFilename|SinglePhotoLogoFilename)>' |
     ForEach-Object { Write-Host "  $($_.Line.Trim())" }
 }
