@@ -77,6 +77,7 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("probe_enabled", "PROBE_ENABLED"),
     ("terminal_host", "TERMINAL_HOST"),
     ("ride_count_parity", "RIDE_COUNT_PARITY"),
+    ("sample_upload_minutes", "SAMPLE_UPLOAD_MINUTES"),
 )
 
 # Welche davon Schalter sind und deshalb als true/false geschrieben werden.

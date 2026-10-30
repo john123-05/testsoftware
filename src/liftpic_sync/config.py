@@ -101,6 +101,10 @@ class Settings:
     # AidaTest.ini als `Executable=`. Dasselbe von Hand aufzurufen ergibt ein
     # Testfoto, das denselben Weg nimmt wie ein echtes.
     test_photo_exe: Path | None = None
+    # Stichprobe fuer Anlagen ohne Foto-Upload ("Nur Zaehler"): alle so viele
+    # Minuten das neueste Foto als Testfoto hochladen - sichtbar fuer uns, zaehlt
+    # nie als Verkauf. 0 = aus.
+    sample_upload_minutes: float = 0.0
     # Wie oft nach einem Neustart-Auftrag gefragt wird, solange Neustarts
     # freigeschaltet sind.
     #
@@ -293,6 +297,7 @@ class Settings:
                 if (test_photo_raw := _get(values, "TEST_PHOTO_EXE", "").strip())
                 else None
             ),
+            sample_upload_minutes=float(_get(values, "SAMPLE_UPLOAD_MINUTES", "0").strip() or "0"),
             viewer_restart_enabled=parse_bool(_get(values, "VIEWER_RESTART_ENABLED", "false"), False),
             restart_poll_seconds=float(_get(values, "RESTART_POLL_SECONDS", "20") or "20"),
             coin_stats_file=(

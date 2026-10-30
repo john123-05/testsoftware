@@ -194,6 +194,9 @@ class LiftpicService:
         self._autostart_vorhanden: bool | None = None
         self._wachhund_ohne_netz_gemeldet = False
         self._last_asset_sync = 0.0
+        # Stichprobe: wann zuletzt geprueft und welches Bild zuletzt hochging.
+        self._letzte_stichprobe = 0.0
+        self._letztes_stichprobenbild: str | None = None
         self._last_config_refresh = 0.0
         # Bis wann das Verkaufsprogramm ausbleiben soll, und ob wir das
         # schon gemeldet haben. Siehe _pause_durchsetzen.
@@ -658,6 +661,7 @@ class LiftpicService:
         uploaded = self.uploader.upload_due()
         if uploaded > 0:
             self._last_upload_ok = time.time()
+        self._stichprobe_if_due()
         if self.uploader.auth_failed:
             # Uploads are being rejected on auth -> our device token is stale.
             # Heal it (re-pair) so uploads resume without any manual step.
@@ -830,6 +834,52 @@ class LiftpicService:
         except Exception as exc:  # darf den Heartbeat nie kosten
             log.warning("payment scan failed: %s", exc)
         return self._payment_cache
+
+    def _stichprobe_if_due(self) -> None:
+        """Alle `sample_upload_minutes` das neueste Foto als Testfoto hochladen.
+
+        Fuer Anlagen im Modus "Nur Zaehler": dort geht sonst kein einziges Bild
+        hoch, und niemand sieht, ob die Kamera noch richtig zielt. Das Foto
+        laeuft ueber `lade_testfoto_hoch` - also mit is_test, nie als Verkauf.
+        Nur ein Bild, das im letzten Zeitraum entstanden ist: steht die Anlage,
+        geht nichts hoch.
+        """
+        minuten = self.settings.sample_upload_minutes
+        if minuten <= 0:
+            return
+        jetzt = time.time()
+        if jetzt - self._letzte_stichprobe < minuten * 60:
+            return
+        self._letzte_stichprobe = jetzt
+
+        # Ohne echte Kundennummer bestimmt der Server den Park nicht - das Foto
+        # landete ueber die Bucket-Zuordnung bei Imst.
+        code = re.sub(r"\D", "", self.settings.customer_code or "")
+        if not code or int(code) == 0:
+            log.info("sample upload skipped: no customer code yet")
+            return
+
+        kandidaten = [
+            b for b in (
+                _juengstes_bild(self.settings.processed_dir),
+                _juengstes_bild(self.settings.raw_dir),
+            ) if b is not None
+        ]
+        if not kandidaten:
+            return
+        bild = max(kandidaten, key=lambda p: p.stat().st_mtime)
+        if str(bild) == self._letztes_stichprobenbild:
+            return
+        if jetzt - bild.stat().st_mtime > minuten * 60:
+            return
+        try:
+            pfad = lade_testfoto_hoch(self.settings, self.client, bild)
+            self._letztes_stichprobenbild = str(bild)
+            log.info("sample photo uploaded: %s -> %s", bild.name, Path(pfad).name)
+        except NichtZuordenbar as exc:
+            log.error("sample upload refused: %s", exc)
+        except Exception:
+            log.exception("sample upload failed")
 
     def _handle_test_photo(self, request_id: str, mode: str) -> None:
         """Ein vom Dashboard beauftragtes Testfoto ausloesen.
