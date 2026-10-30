@@ -25,7 +25,9 @@
 param(
   [Parameter(Mandatory = $true)][string]$Slug,
   [string]$InstallDir = "C:\liftpic\liftpic-sync",
-  [switch]$OhneViewerNeustart
+  [switch]$OhneViewerNeustart,
+  # Kunde ohne QR-Code (nur Automat/Kasse): QR-Ziel in der Settings.xml NICHT anfassen.
+  [switch]$OhneQr
 )
 $ErrorActionPreference = "Stop"
 $EnvPath = Join-Path $InstallDir ".env"
@@ -86,7 +88,9 @@ Write-Host "2/5 QR-Ziel..."
 $qrNeu = "https://liftpictures-fotos.de/$Slug/claim?code="
 $qrAlt = $null
 $qrGeaendert = $false
-if (Test-Path $settings) {
+if ($OhneQr) {
+  Write-Host "  uebersprungen (-OhneQr: Kunde ohne QR-Code)"
+} elseif (Test-Path $settings) {
   $enc = [Text.Encoding]::GetEncoding(28591)
   $text = $enc.GetString([IO.File]::ReadAllBytes($settings))
   $m = [regex]::Match($text, '<QrCodeBeginningString>([^<]*)</QrCodeBeginningString>')
@@ -181,11 +185,13 @@ Write-Host "================================================================"
 Write-Host "Eingetragen:"
 foreach ($k in $werte.Keys) { Write-Host "  $k=$($werte[$k])" }
 if (-not $werte.Contains("SPEED_LOG_FILE")) { Write-Host "  (kein Speedshot-Protokoll gefunden)" }
-if ($null -eq $qrAlt) { Write-Host "QR: keine Settings.xml / kein QrCodeBeginningString gefunden" }
+if ($OhneQr) { Write-Host "QR: nicht geaendert (Kunde ohne QR-Code)" }
+elseif ($null -eq $qrAlt) { Write-Host "QR: keine Settings.xml / kein QrCodeBeginningString gefunden" }
 elseif ($qrGeaendert) { Write-Host "QR: $qrAlt  ->  $qrNeu" }
 else { Write-Host "QR: stand schon richtig ($qrNeu)" }
 if (Test-Path $settings) {
-  Select-String -Path $settings -Pattern '<(PricePrint|PriceEmail|EnablePrint|EnableEmail|EnableCreditCardPayment)>' |
+  # Bildcode (CustomerNumber + Stellen im Dateinamen) – muss im CRM eingetragen werden, sonst landen Fotos bei Imst.
+  Select-String -Path $settings -Pattern '<(CustomerNumber|CustomerNumberPositions|CodePositions|PricePrint|PriceEmail|EnablePrint|EnableEmail|EnableCreditCardPayment|EnableQrCodePrintButtons|QrCodeBeginningString|LogoFilename|SinglePhotoLogoFilename)>' |
     ForEach-Object { Write-Host "  $($_.Line.Trim())" }
 }
 $viewer = Get-Process -Name "PhotoViewerFacebook*" -ErrorAction SilentlyContinue | Select-Object -First 1
