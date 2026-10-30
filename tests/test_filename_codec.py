@@ -78,3 +78,10 @@ def test_letter_prefix_b_like_fraekigaudi():
     assert raw is not None and raw.capture_id == "00161"
     name = build_legacy_filename(customer_code="2219", capture_id=raw.capture_id, captured_at=datetime(2026, 10, 17))
     assert name.file_code == "0161"
+
+
+def test_parse_capture_filename_accepts_img_prefix() -> None:
+    parsed = parse_capture_filename("Img75883.jpg")
+    assert parsed is not None
+    assert parsed.capture_id == "75883"
+    assert parsed.timestamp is None

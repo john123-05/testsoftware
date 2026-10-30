@@ -81,6 +81,12 @@ foreach ($a in $aufgaben) {
   if ($i) {
     Zeile "  Zuletzt gelaufen" "$($i.LastRunTime)  (Ergebnis $($i.LastTaskResult))"
   }
+  # Der Waechter (LiftpicSyncWatchdog) laeuft absichtlich per Zeitplan und startet nur den Agenten neu -
+  # Neustart-Einstellungen und Start beim Hochfahren braucht er nicht.
+  if ($a.TaskName -like "*Watchdog*") {
+    Zeile "  Rolle" "Waechter - prueft regelmaessig, ob der Agent laeuft" "Green"
+    continue
+  }
   # Selbstheilung: startet die Aufgabe nach einem Absturz neu?
   $neustarts = $a.Settings.RestartCount
   $abstand   = $a.Settings.RestartInterval

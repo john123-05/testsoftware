@@ -13,7 +13,8 @@ PROCESSED_RE = re.compile(
 )
 # Ein Buchstabe vor der Nummer ist erlaubt: "t" (Imst, Doberan) oder "B" (Fräkigaudi). Das
 # Verkaufsprogramm zählt ihn bei CodePositionsInFilename mit - dort also 3,4,5,6, hier 2,3,4,5.
-RAW_RE = re.compile(r"^[a-z]?(?P<capture>\d{1,8})\.jpe?g$", re.I)
+# Walderlebnisweg schreibt "Img75883.jpg" - bis zu drei Buchstaben sind erlaubt.
+RAW_RE = re.compile(r"^[a-z]{0,3}(?P<capture>\d{1,8})\.jpe?g$", re.I)
 
 
 @dataclass(frozen=True)
