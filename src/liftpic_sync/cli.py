@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 from .asset_sync import AssetSyncWorker
@@ -248,6 +249,17 @@ def main(argv: list[str] | None = None) -> int:
             # Die Zustandsdatenbank ist der Ort, an dem sich zwei Agenten
             # zwangslaeufig treffen: es ist die Ressource, um die es geht.
             bekommen, fremde = service.store.besitz_anmelden(os.getpid())
+            # Direkt nach einem Update/Neustart steht der Eintrag des gerade
+            # beendeten Agenten noch bis zu BESITZ_GILT_SEKUNDEN drin. Sofort
+            # aufgeben hiesse: Exit 0, die Aufgabe startet nicht neu, und der
+            # Automat steht bis zum naechsten Waechterlauf (30.10.2026, Stargard).
+            # Also abwarten - ein wirklich laufender Agent frischt seinen
+            # Eintrag laufend auf und behaelt ihn, ein beendeter verliert ihn.
+            frist = time.time() + service.store.BESITZ_GILT_SEKUNDEN + 15
+            while not bekommen and time.time() < frist:
+                log.info("state database still claimed by pid %s - waiting", fremde)
+                time.sleep(10)
+                bekommen, fremde = service.store.besitz_anmelden(os.getpid())
             if not bekommen:
                 log.error(
                     "another liftpic-sync agent (pid %s) is working on this state "
