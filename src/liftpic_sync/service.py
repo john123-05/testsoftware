@@ -20,6 +20,7 @@ from .scanner import FolderScanner
 from .state import StateStore
 from .statusfiles import read_local_status
 from .camera_settings import kamera_status, schreibe_werte, xml_pfad_fuer
+from .viewer_xml import lies_viewer, schreibe_viewer
 from .payments import read_payments
 from .system_probe import collect_probes
 from .test_photo_upload import NichtZuordenbar, lade_testfoto_hoch
@@ -483,6 +484,11 @@ class LiftpicService:
         except Exception as exc:  # darf die Konfiguration nie kosten
             log.warning("camera order failed: %s", exc)
 
+        try:
+            self._viewer_auftrag_pruefen(config)
+        except Exception as exc:  # darf die Konfiguration nie kosten
+            log.warning("viewer order failed: %s", exc)
+
         device_token = str(response.get("device_token") or self.settings.device_token)
         desired = config_to_env(config, device_token)
 
@@ -653,6 +659,50 @@ class LiftpicService:
             ),
         )
 
+    def _viewer_auftrag_pruefen(self, config: dict) -> None:
+        """QR-Code/Preis im Verkaufsprogramm setzen, beauftragt aus dem CRM.
+
+        Gleiches Muster wie der Kameraauftrag: reist in `settings.viewer_auftrag`,
+        wird genau einmal ausgeführt, Ergebnis als Meldung im Systemzustand.
+        """
+        einstellungen = config.get("settings")
+        if not isinstance(einstellungen, dict):
+            return
+        auftrag = einstellungen.get("viewer_auftrag")
+        if not isinstance(auftrag, dict):
+            return
+        auftrag_id = str(auftrag.get("id") or "").strip()
+        werte = auftrag.get("werte")
+        if not auftrag_id or not isinstance(werte, dict) or not werte:
+            return
+        if not self.store.auftrag_beanspruchen(auftrag_id):
+            return
+
+        log.warning("carrying out viewer order '%s': %s", auftrag_id, sorted(werte))
+        ergebnis = schreibe_viewer(self.settings.viewer_settings_xml, werte)
+        if ergebnis.fehler and not ergebnis.geschrieben:
+            self.store.record_health_event(
+                kind="viewer", severity="error",
+                summary=f"Verkaufsprogramm nicht geändert: {ergebnis.fehler}",
+                detail=f"Auftrag {auftrag_id}"
+                + (f" - abgelehnt: {ergebnis.abgelehnt}" if ergebnis.abgelehnt else ""),
+            )
+            return
+
+        # Das Verkaufsprogramm liest die Datei nur beim Start.
+        neustart_text = "greift beim nächsten Start des Verkaufsprogramms"
+        if auftrag.get("neustart") == "now":
+            neustart_text = restart_program(self.settings, "viewer").reason
+        teile = ", ".join(f"{k}={v}" for k, v in sorted(ergebnis.geschrieben.items()))
+        self.store.record_health_event(
+            kind="viewer",
+            severity="warning" if ergebnis.abgelehnt else "info",
+            summary=f"Verkaufsprogramm eingestellt: {teile}",
+            detail=f"Auftrag {auftrag_id} - {neustart_text}"
+            + (f" - abgelehnt: {ergebnis.abgelehnt}" if ergebnis.abgelehnt else "")
+            + (f" - Sicherung: {ergebnis.sicherung}" if ergebnis.sicherung else ""),
+        )
+
     def _apply_settings(self, new_settings: Settings) -> None:
         was_shadow = self.settings.shadow_mode
         # Re-read the viewer's recipe too: a dashboard change must not quietly
@@ -802,6 +852,8 @@ class LiftpicService:
             # Was im Verkaufsprogramm (Settings.xml) steht. Das CRM bietet damit
             # "Bildcode uebernehmen" an, statt dass jemand den Bericht abtippt.
             "viewer_customer_number": _viewer_customer_number(self.settings),
+            # QR-Ziel, QR-Knopf und Preis, wie sie gerade im Verkaufsprogramm stehen.
+            "viewer_flags": lies_viewer(self.settings.viewer_settings_xml),
             "restart_poll_seconds": self._asset_poll_seconds(),
             "night_window": [
                 self.settings.viewer_night_start, self.settings.viewer_night_end,

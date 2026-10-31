@@ -10,4 +10,4 @@
 # Beim Anheben eines Standes wird sie hier UND als Git-Tag gesetzt
 # (`v<version>`), damit `build-windows.yml` das passende Artefakt baut und
 # `update_liftpic.ps1 -Tag v<version>` genau diesen Stand installiert.
-__version__ = "0.2.7"
+__version__ = "0.2.8"
