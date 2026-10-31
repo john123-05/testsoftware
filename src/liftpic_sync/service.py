@@ -489,6 +489,11 @@ class LiftpicService:
         except Exception as exc:  # darf die Konfiguration nie kosten
             log.warning("viewer order failed: %s", exc)
 
+        try:
+            self._update_auftrag_pruefen(config)
+        except Exception as exc:  # darf die Konfiguration nie kosten
+            log.warning("update order failed: %s", exc)
+
         device_token = str(response.get("device_token") or self.settings.device_token)
         desired = config_to_env(config, device_token)
 
@@ -701,6 +706,66 @@ class LiftpicService:
             detail=f"Auftrag {auftrag_id} - {neustart_text}"
             + (f" - abgelehnt: {ergebnis.abgelehnt}" if ergebnis.abgelehnt else "")
             + (f" - Sicherung: {ergebnis.sicherung}" if ergebnis.sicherung else ""),
+        )
+
+    def _update_auftrag_pruefen(self, config: dict) -> None:
+        """Agent-Update aus dem CRM (`settings.update_auftrag` = {id, tag}).
+
+        Der Agent kann sich nicht selbst ersetzen, während er läuft. Er lädt deshalb
+        scripts/update_liftpic.ps1 der gewünschten Version und startet es als eigene
+        Windows-Aufgabe (SYSTEM). Die hält den Agenten an, sichert, aktualisiert,
+        prüft und startet ihn wieder – mit Rückweg über die Sicherung.
+        """
+        einstellungen = config.get("settings")
+        if not isinstance(einstellungen, dict):
+            return
+        auftrag = einstellungen.get("update_auftrag")
+        if not isinstance(auftrag, dict):
+            return
+        auftrag_id = str(auftrag.get("id") or "").strip()
+        tag = str(auftrag.get("tag") or "").strip()
+        if not auftrag_id or not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+            return
+        if tag.lstrip("v") == __version__:
+            return
+        if os.name != "nt":
+            log.info("update order '%s' ignored: not on Windows", auftrag_id)
+            return
+        if not self.store.auftrag_beanspruchen(auftrag_id):
+            return
+
+        import urllib.request
+
+        ordner = Path(r"C:\liftpic\setup")
+        ordner.mkdir(parents=True, exist_ok=True)
+        skript = ordner / "update_liftpic.ps1"
+        protokoll = ordner / "update.log"
+        url = f"https://raw.githubusercontent.com/john123-05/testsoftware/{tag}/scripts/update_liftpic.ps1"
+        try:
+            with urllib.request.urlopen(url, timeout=30) as antwort:
+                skript.write_bytes(antwort.read())
+            befehl = (
+                f'cmd /c powershell -NoProfile -ExecutionPolicy Bypass -File "{skript}" -Tag {tag} '
+                f'> "{protokoll}" 2>&1'
+            )
+            subprocess.run(
+                ["schtasks", "/Create", "/TN", "LiftpicUpdate", "/SC", "ONCE", "/ST", "00:00",
+                 "/RU", "SYSTEM", "/RL", "HIGHEST", "/TR", befehl, "/F"],
+                check=True, capture_output=True, timeout=60,
+            )
+            subprocess.run(["schtasks", "/Run", "/TN", "LiftpicUpdate"], check=True,
+                           capture_output=True, timeout=60)
+        except Exception as exc:
+            self.store.record_health_event(
+                kind="uploader", severity="error",
+                summary=f"Update auf {tag} konnte nicht gestartet werden: {exc}",
+                detail=f"Auftrag {auftrag_id}",
+            )
+            return
+        self.store.record_health_event(
+            kind="uploader", severity="info",
+            summary=f"Update auf {tag} gestartet (Agent {__version__})",
+            detail=f"Auftrag {auftrag_id} - Protokoll am PC: {protokoll}",
         )
 
     def _apply_settings(self, new_settings: Settings) -> None:
