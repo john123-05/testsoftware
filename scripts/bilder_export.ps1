@@ -15,10 +15,12 @@
   .\bilder_export.ps1 -Slug doberan
 #>
 param(
-  [Parameter(Mandatory = $true)][string]$Slug
+  [Parameter(Mandatory = $true)][string]$Slug,
+  # Zielordner; ohne Angabe der Downloads-Ordner des Benutzers (setup.ps1 nimmt den oeffentlichen Desktop).
+  [string]$Ziel = ""
 )
 $ErrorActionPreference = "Stop"
-$out = Join-Path ([Environment]::GetFolderPath("UserProfile")) "Downloads\$Slug-bilder"
+$out = if ($Ziel) { Join-Path $Ziel "$Slug-bilder" } else { Join-Path ([Environment]::GetFolderPath("UserProfile")) "Downloads\$Slug-bilder" }
 Remove-Item $out, "$out.zip" -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $out | Out-Null
 

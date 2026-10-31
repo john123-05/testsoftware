@@ -99,6 +99,17 @@ def _auftragsalter_minuten(request: dict) -> float | None:
     return max(0.0, (jetzt - gestellt).total_seconds() / 60.0)
 
 
+def _viewer_customer_number(settings) -> str | None:
+    """Die Kundennummer aus der Settings.xml des Verkaufsprogramms, sonst None."""
+    try:
+        from .viewer_settings import read_viewer_recipe
+
+        recipe = read_viewer_recipe(settings.viewer_settings_xml)
+        return recipe.customer_number if recipe and recipe.customer_number else None
+    except Exception:  # darf den Heartbeat nie kosten
+        return None
+
+
 def _juengstes_bild(ordner) -> Path | None:
     """Das zuletzt geschriebene Bild in einem Ordner."""
     if ordner is None or not Path(ordner).is_dir():
@@ -788,6 +799,9 @@ class LiftpicService:
             # `park_cameras` stand nur 7623, und die Fotos landeten bei einem
             # fremden Park. Das war vorher nirgends sichtbar.
             "customer_code": self.settings.customer_code,
+            # Was im Verkaufsprogramm (Settings.xml) steht. Das CRM bietet damit
+            # "Bildcode uebernehmen" an, statt dass jemand den Bericht abtippt.
+            "viewer_customer_number": _viewer_customer_number(self.settings),
             "restart_poll_seconds": self._asset_poll_seconds(),
             "night_window": [
                 self.settings.viewer_night_start, self.settings.viewer_night_end,

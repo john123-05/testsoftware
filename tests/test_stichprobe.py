@@ -73,3 +73,11 @@ def test_fernschaltbar():
     from liftpic_sync.remote_config import config_to_env
     env = config_to_env({"mode": "count_only", "settings": {"sample_upload_minutes": 60}}, "t")
     assert env["SAMPLE_UPLOAD_MINUTES"] == "60"
+
+
+def test_viewer_kundennummer_aus_settings(tmp_path):
+    from liftpic_sync.service import _viewer_customer_number
+    xml = tmp_path / "Settings.xml"
+    xml.write_text("<Settings><CustomerNumber>3344</CustomerNumber></Settings>", encoding="utf-8")
+    assert _viewer_customer_number(SimpleNamespace(viewer_settings_xml=xml)) == "3344"
+    assert _viewer_customer_number(SimpleNamespace(viewer_settings_xml=tmp_path / "fehlt.xml")) is None
