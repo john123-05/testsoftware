@@ -48,3 +48,14 @@ def test_fremde_ziele_und_schluessel_abgelehnt(tmp_path):
     assert e.fehler and not e.geschrieben
     assert set(e.abgelehnt) == {"QrCodeBeginningString", "CustomerNumber"}
     assert p.read_bytes() == XML.encode("utf-8")
+
+
+def test_alle_lesen_und_beliebigen_wert_setzen(tmp_path):
+    from liftpic_sync.viewer_xml import lies_alle
+    p = _datei(tmp_path)
+    alle = lies_alle(p)
+    assert alle["CustomerNumber"] == "3344" and alle["Name"] == "Schöne Grüße".encode("utf-8").decode("latin-1")
+    e = schreibe_viewer(p, {"Name": "Hallo", "CustomerNumber": "1111"})
+    assert e.geschrieben == {"Name": "Hallo"}
+    assert "CustomerNumber" in e.abgelehnt
+    assert lies_alle(p)["CustomerNumber"] == "3344"

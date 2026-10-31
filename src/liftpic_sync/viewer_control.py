@@ -124,6 +124,53 @@ def laeuft_ohne_bildschirm() -> bool:
         return False
 
 
+_BENUTZER_CACHE: tuple[float, str | None] = (0.0, None)
+
+
+def angemeldeter_benutzer() -> str | None:
+    """Wer gerade am Bildschirm angemeldet ist (DOMAIN\\name), sonst None. 60 s gemerkt."""
+    global _BENUTZER_CACHE
+    jetzt = time.time()
+    if jetzt - _BENUTZER_CACHE[0] < 60:
+        return _BENUTZER_CACHE[1]
+    name: str | None = None
+    try:
+        aus = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "(Get-CimInstance Win32_ComputerSystem).UserName"],
+            capture_output=True, text=True, timeout=30,
+        ).stdout.strip()
+        name = aus or None
+    except Exception:
+        name = None
+    _BENUTZER_CACHE = (jetzt, name)
+    return name
+
+
+def starte_in_benutzersitzung(exe: Path) -> bool:
+    """Ein Programm SICHTBAR starten, obwohl der Agent als SYSTEM in Sitzung 0 läuft.
+
+    Über eine einmalige Windows-Aufgabe, die als der angemeldete Benutzer interaktiv
+    läuft – genau so, als hätte jemand am Automaten doppelgeklickt.
+    """
+    benutzer = angemeldeter_benutzer()
+    if not benutzer:
+        return False
+    quote = lambda t: str(t).replace("'", "''")
+    befehl = (
+        f"$a=New-ScheduledTaskAction -Execute '{quote(exe)}' -WorkingDirectory '{quote(exe.parent)}'; "
+        f"$p=New-ScheduledTaskPrincipal -UserId '{quote(benutzer)}' -LogonType Interactive -RunLevel Highest; "
+        "Register-ScheduledTask -TaskName 'LiftpicStart' -Action $a -Principal $p -Force | Out-Null; "
+        "Start-ScheduledTask -TaskName 'LiftpicStart'"
+    )
+    try:
+        erg = subprocess.run(["powershell", "-NoProfile", "-Command", befehl],
+                             capture_output=True, text=True, timeout=60)
+        return erg.returncode == 0
+    except Exception:
+        log.exception("start in user session failed for %s", exe)
+        return False
+
+
 def restartable_programs(settings: Settings) -> list[Programm]:
     """Welche Programme dieser PC neu starten kann.
 
@@ -137,7 +184,9 @@ def restartable_programs(settings: Settings) -> list[Programm]:
 
     # Ohne Bildschirmzugriff waere ein Neustart schaedlich statt hilfreich:
     # das sichtbare Programm ginge aus, das neue niemand zu Gesicht bekaeme.
-    if laeuft_ohne_bildschirm():
+    # Ab 0.3.0 startet der Agent dann ueber eine Aufgabe in der Benutzersitzung -
+    # das geht aber nur, wenn jemand angemeldet ist.
+    if laeuft_ohne_bildschirm() and not angemeldeter_benutzer():
         log.info(
             "restart targets hidden: this agent runs in session 0 (system service), "
             "a restarted program would be invisible to the guest"
@@ -404,6 +453,13 @@ def restart_program(settings: Settings, key: str = "viewer") -> RestartOutcome:
         )
     exe = programm.exe
 
+    # Als SYSTEM nur neu starten, wenn wir es danach auch SICHTBAR wieder starten
+    # koennen - sonst lieber gar nicht anhalten.
+    if laeuft_ohne_bildschirm() and not angemeldeter_benutzer():
+        return RestartOutcome(
+            False, "Kein Benutzer am Automaten angemeldet - Neustart nicht sicher moeglich"
+        )
+
     # Anhalten und Starten sind bewusst GETRENNT abgesichert.
     #
     # Beim ersten Einsatz ist genau das schiefgegangen: das Verkaufsprogramm war
@@ -425,12 +481,20 @@ def restart_program(settings: Settings, key: str = "viewer") -> RestartOutcome:
     time.sleep(RESTART_PAUSE_SECONDS)
 
     try:
-        subprocess.Popen(
-            [str(exe)],
-            cwd=str(exe.parent),
-            close_fds=True,
-            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
-        )
+        if laeuft_ohne_bildschirm():
+            if not starte_in_benutzersitzung(exe):
+                return RestartOutcome(
+                    False,
+                    f"{programm.name} angehalten, aber nicht sichtbar startbar "
+                    "(kein Benutzer am Automaten angemeldet?)",
+                )
+        else:
+            subprocess.Popen(
+                [str(exe)],
+                cwd=str(exe.parent),
+                close_fds=True,
+                creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
+            )
     except Exception as exc:
         log.exception("restart %s: could not start %s", programm.key, exe)
         return RestartOutcome(False, f"{programm.name} konnte nicht gestartet werden: {exc}")
@@ -562,10 +626,10 @@ def trigger_test_photo(settings: Settings) -> RestartOutcome:
     exe = settings.test_photo_exe
     if exe is None:
         return RestartOutcome(False, "Testfoto ist auf diesem PC nicht eingerichtet")
-    if laeuft_ohne_bildschirm():
+    if laeuft_ohne_bildschirm() and not angemeldeter_benutzer():
         return RestartOutcome(
             False,
-            "Der Automat läuft als Systemdienst ohne Bildschirmzugriff - "
+            "Der Automat läuft als Systemdienst und niemand ist angemeldet - "
             "ein Auslöser von hier erreicht die Kamera-Software nicht.",
         )
     if not exe.exists():
@@ -595,7 +659,7 @@ def trigger_test_photo(settings: Settings) -> RestartOutcome:
     vorher_fertig = _neueste_datei(settings.qrcode_dir or settings.processed_dir)
 
     try:
-        subprocess.Popen(
+        starte_in_benutzersitzung(exe) if laeuft_ohne_bildschirm() else subprocess.Popen(
             [str(exe)],
             cwd=str(exe.parent),
             close_fds=True,

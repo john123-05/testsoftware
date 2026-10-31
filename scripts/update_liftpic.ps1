@@ -151,6 +151,35 @@ if ($token) {
 }
 
 
+
+# Laufende Programme erkennen und fuer Neustart/Testfoto aus dem CRM eintragen
+# (VIEWER_EXE, CAMERA_EXE, LIGHTBARRIER_EXE, VIEWER_RESTART_ENABLED, ASSET_SYNC_ENABLED).
+# Vorhandene Werte in der .env bleiben unangetastet.
+function Programme-Eintragen([string]$EnvDatei) {
+  if (-not (Test-Path $EnvDatei)) { return }
+  $text = [IO.File]::ReadAllText($EnvDatei)
+  $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -like "C:\liftpic\*" })
+  $finde = { param($muster) ($procs | Where-Object { $_.Name -match $muster } | Select-Object -First 1).ExecutablePath }
+  $werte = [ordered]@{
+    VIEWER_EXE       = & $finde '^PhotoViewer(?!.*Watchdog).*\.exe$'
+    CAMERA_EXE       = & $finde '^(3gerTis|camera|Axis2Web|IC ?Capture).*\.exe$'
+    LIGHTBARRIER_EXE = & $finde '^AidaTest.*\.exe$'
+  }
+  $neu = @()
+  foreach ($k in $werte.Keys) {
+    if ($werte[$k] -and $text -notmatch "(?m)^$k=\S") { $neu += "$k=$($werte[$k])" }
+  }
+  if ($werte.VIEWER_EXE -and $text -notmatch "(?m)^VIEWER_RESTART_ENABLED=") { $neu += "VIEWER_RESTART_ENABLED=true" }
+  if ($text -notmatch "(?m)^ASSET_SYNC_ENABLED=") { $neu += "ASSET_SYNC_ENABLED=true" }
+  if ($neu.Count) {
+    $vorne = if ($text.EndsWith("`n")) { "" } else { "`r`n" }
+    [IO.File]::AppendAllText($EnvDatei, $vorne + ($neu -join "`r`n") + "`r`n", [Text.Encoding]::ASCII)
+    Write-Host "  Programme eingetragen: $($neu -join ', ')"
+  }
+}
+
+Programme-Eintragen $EnvPath
+
 # ------------------------------------------------------------ 6/6 Bericht
 Write-Host "6/6 Lage nach dem Update:"
 Write-Host ""

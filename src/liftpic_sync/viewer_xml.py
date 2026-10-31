@@ -24,6 +24,9 @@ _QR_ZIEL = re.compile(
     re.I,
 )
 SCHLUESSEL = ("QrCodeBeginningString", "EnableQrCodePrintButtons", "PricePrint")
+# Darf nie aus der Ferne geaendert werden: davon haengt ab, in welchem Park ein Foto landet.
+GESPERRT = {"CustomerNumber", "CustomerNumberPositions", "CodePositions", "CodePositionsInFilename"}
+_LEAF = re.compile(r"<([A-Za-z][A-Za-z0-9_]{0,60})>([^<\r\n]{0,300})</\1>")
 
 
 @dataclass
@@ -56,8 +59,26 @@ def lies_viewer(xml_datei: Path | None) -> dict | None:
     return werte
 
 
+def lies_alle(xml_datei: Path | None) -> dict[str, str] | None:
+    """Alle einfachen Einträge `<Name>Wert</Name>` (jeweils der erste), für das CRM."""
+    if xml_datei is None or not Path(xml_datei).exists():
+        return None
+    try:
+        text = Path(xml_datei).read_bytes().decode("latin-1")
+    except OSError:
+        return None
+    werte: dict[str, str] = {}
+    for treffer in _LEAF.finditer(text):
+        werte.setdefault(treffer.group(1), treffer.group(2).strip())
+        if len(werte) >= 400:
+            break
+    return werte
+
+
 def _pruefe(name: str, roh: object) -> tuple[str | None, str | None]:
     """(Text für die Datei, Ablehnungsgrund)."""
+    if name in GESPERRT:
+        return None, "Bildcode-Einstellung – nur am PC änderbar"
     if name == "EnableQrCodePrintButtons":
         if not isinstance(roh, bool):
             return None, "muss an oder aus sein"
@@ -75,7 +96,15 @@ def _pruefe(name: str, roh: object) -> tuple[str | None, str | None]:
         if not _QR_ZIEL.match(text):
             return None, "kein erlaubtes QR-Ziel"
         return text, None
-    return None, "darf aus der Ferne nicht geaendert werden"
+    # Alle anderen vorhandenen Einträge: einfacher Text, Zahl oder an/aus.
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,60}", name):
+        return None, "kein gueltiger Name"
+    if isinstance(roh, bool):
+        return ("true" if roh else "false"), None
+    text = str(roh if roh is not None else "").strip()
+    if len(text) > 300 or any(z in text for z in "<>&\r\n"):
+        return None, "ungueltiger Wert"
+    return text, None
 
 
 def schreibe_viewer(xml_datei: Path | None, werte: dict) -> ViewerErgebnis:

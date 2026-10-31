@@ -20,7 +20,7 @@ from .scanner import FolderScanner
 from .state import StateStore
 from .statusfiles import read_local_status
 from .camera_settings import kamera_status, schreibe_werte, xml_pfad_fuer
-from .viewer_xml import lies_viewer, schreibe_viewer
+from .viewer_xml import lies_alle, lies_viewer, schreibe_viewer
 from .payments import read_payments
 from .system_probe import collect_probes
 from .test_photo_upload import NichtZuordenbar, lade_testfoto_hoch
@@ -28,7 +28,7 @@ from .supabase_client import SupabaseIngestClient
 from .uploader import UploadWorker
 from .viewer_control import (
     _running_pids as _laufende_pids,
-    find_program, in_night_window, laeuft_ohne_bildschirm, restart_program,
+    angemeldeter_benutzer, find_program, in_night_window, laeuft_ohne_bildschirm, restart_program,
     restartable_programs, stop_program, trigger_test_photo,
 )
 from . import __version__
@@ -895,7 +895,7 @@ class LiftpicService:
             "can_test_photo": (
                 self.settings.test_photo_exe is not None
                 and self.settings.test_photo_exe.exists()
-                and not laeuft_ohne_bildschirm()
+                and (not laeuft_ohne_bildschirm() or bool(angemeldeter_benutzer()))
             ),
             # Laeuft der Agent als Systemdienst ohne Bildschirmzugriff? Dann
             # gibt es keine Neustart- und Testfoto-Knoepfe, und das Dashboard
@@ -919,6 +919,8 @@ class LiftpicService:
             "viewer_customer_number": _viewer_customer_number(self.settings),
             # QR-Ziel, QR-Knopf und Preis, wie sie gerade im Verkaufsprogramm stehen.
             "viewer_flags": lies_viewer(self.settings.viewer_settings_xml),
+            # Alle einfachen Einträge der Settings.xml – das CRM zeigt sie zum Bearbeiten.
+            "viewer_settings": lies_alle(self.settings.viewer_settings_xml),
             "restart_poll_seconds": self._asset_poll_seconds(),
             "night_window": [
                 self.settings.viewer_night_start, self.settings.viewer_night_end,

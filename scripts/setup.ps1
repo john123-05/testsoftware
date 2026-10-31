@@ -43,6 +43,33 @@ function EnvWert([string]$text, [string]$name) {
   return ""
 }
 
+
+# Laufende Programme erkennen und fuer Neustart/Testfoto aus dem CRM eintragen
+# (VIEWER_EXE, CAMERA_EXE, LIGHTBARRIER_EXE, VIEWER_RESTART_ENABLED, ASSET_SYNC_ENABLED).
+# Vorhandene Werte in der .env bleiben unangetastet.
+function Programme-Eintragen([string]$EnvDatei) {
+  if (-not (Test-Path $EnvDatei)) { return }
+  $text = [IO.File]::ReadAllText($EnvDatei)
+  $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -like "C:\liftpic\*" })
+  $finde = { param($muster) ($procs | Where-Object { $_.Name -match $muster } | Select-Object -First 1).ExecutablePath }
+  $werte = [ordered]@{
+    VIEWER_EXE       = & $finde '^PhotoViewer(?!.*Watchdog).*\.exe$'
+    CAMERA_EXE       = & $finde '^(3gerTis|camera|Axis2Web|IC ?Capture).*\.exe$'
+    LIGHTBARRIER_EXE = & $finde '^AidaTest.*\.exe$'
+  }
+  $neu = @()
+  foreach ($k in $werte.Keys) {
+    if ($werte[$k] -and $text -notmatch "(?m)^$k=\S") { $neu += "$k=$($werte[$k])" }
+  }
+  if ($werte.VIEWER_EXE -and $text -notmatch "(?m)^VIEWER_RESTART_ENABLED=") { $neu += "VIEWER_RESTART_ENABLED=true" }
+  if ($text -notmatch "(?m)^ASSET_SYNC_ENABLED=") { $neu += "ASSET_SYNC_ENABLED=true" }
+  if ($neu.Count) {
+    $vorne = if ($text.EndsWith("`n")) { "" } else { "`r`n" }
+    [IO.File]::AppendAllText($EnvDatei, $vorne + ($neu -join "`r`n") + "`r`n", [Text.Encoding]::ASCII)
+    Write-Host "  Programme eingetragen: $($neu -join ', ')"
+  }
+}
+
 # ---------------------------------------------------------------- Teil 2: laeuft als SYSTEM
 if ($Phase2) {
   Start-Transcript -Path $Log -Append | Out-Null
@@ -57,10 +84,27 @@ if ($Phase2) {
     if (-not $slug -or $slug -eq "unknown-park") { throw "Kopplung hat nicht geklappt - im CRM einen neuen Code erzeugen und den neuen Befehl einfuegen." }
     $mitQr = (EnvWert $envText "UPLOAD_SOURCE") -eq "qrcode"
 
+    Programme-Eintragen $envDatei
     Schreibe "LAEUFT: Einrichtung fuer $slug (Waechter, Ordner, Agent-Neustart)"
     $einrichten = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "$Dir\einrichten_nach_install.ps1", "-Slug", $slug, "-OhneViewerNeustart")
     if (-not $mitQr) { $einrichten += "-OhneQr" }
     & powershell @einrichten
+
+    if ($mitQr) {
+      # Neuer QR-Link wird erst nach einem Neustart des Verkaufsprogramms gedruckt. Als SYSTEM
+      # sichtbar starten geht nur ueber eine Aufgabe in der Sitzung des angemeldeten Benutzers.
+      $viewer = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -like "C:\liftpic\*" -and $_.Name -like "PhotoViewer*" -and $_.Name -notlike "*Watchdog*" } | Select-Object -First 1
+      $benutzer = (Get-CimInstance Win32_ComputerSystem).UserName
+      if ($viewer -and $benutzer) {
+        $exe = $viewer.ExecutablePath
+        Stop-Process -Id $viewer.ProcessId -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 3
+        $a = New-ScheduledTaskAction -Execute $exe -WorkingDirectory (Split-Path $exe)
+        $p = New-ScheduledTaskPrincipal -UserId $benutzer -LogonType Interactive -RunLevel Highest
+        Register-ScheduledTask -TaskName "LiftpicStart" -Action $a -Principal $p -Force | Out-Null
+        Start-ScheduledTask -TaskName "LiftpicStart"
+      }
+    }
 
     Schreibe "LAEUFT: Bilder vom Automaten einsammeln"
     & powershell -NoProfile -ExecutionPolicy Bypass -File "$Dir\bilder_export.ps1" -Slug $slug -Ziel "C:\Users\Public\Desktop"
@@ -123,8 +167,8 @@ $aktion = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfil
 Register-ScheduledTask -TaskName $Aufgabe -Action $aktion -User "SYSTEM" -RunLevel Highest -Force | Out-Null
 Start-ScheduledTask -TaskName $Aufgabe
 
-Write-Host "  Laeuft jetzt im Hintergrund. Wenn AnyDesk getrennt wird: egal, es laeuft weiter." -ForegroundColor Green
-Write-Host "  Fenster am besten offen lassen - hier steht gleich FERTIG." -ForegroundColor Green
+Write-Host "  Laeuft jetzt im Hintergrund weiter - du kannst das Fenster und AnyDesk jetzt SCHLIESSEN." -ForegroundColor Green
+Write-Host "  Den Fortschritt siehst du im CRM (Kundenakte -> PC einrichten). Wer wartet: hier steht gleich FERTIG." -ForegroundColor Green
 Write-Host ""
 
 $letzte = ""
@@ -137,17 +181,6 @@ while ((Get-Date) -lt $ende) {
   $erste = $inhalt[0]
   if ($erste -ne $letzte) { Write-Host "  $(Get-Date -Format HH:mm:ss)  $erste"; $letzte = $erste }
   if ($erste -like "FERTIG*") {
-    if (($inhalt -join "`n") -match "QR-Code: ja") {
-      # Neuer QR-Link wird erst nach einem Neustart des Verkaufsprogramms gedruckt - in DIESER Sitzung.
-      $viewer = Get-Process | Where-Object { $_.Path -like "C:\liftpic\*" -and $_.Name -like "PhotoViewer*" -and $_.Name -notlike "*Watchdog*" } | Select-Object -First 1
-      if ($viewer) {
-        $pfad = $viewer.Path
-        Stop-Process -Id $viewer.Id -Force
-        Start-Sleep -Seconds 3
-        Start-Process -FilePath $pfad -WorkingDirectory (Split-Path $pfad)
-        Write-Host "  Verkaufsprogramm neu gestartet (neuer QR-Code)."
-      }
-    }
     Gross "FERTIG - alles eingerichtet" Green
     $inhalt | Select-Object -Skip 1 | ForEach-Object { Write-Host "   $_" }
     Write-Host ""
