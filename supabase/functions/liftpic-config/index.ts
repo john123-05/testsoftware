@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
     if (Array.isArray(row.settings?.camera_streams)) {
       const {data:streams,error:streamError}=await supabase.from('liftpic_machine_configs').select('*').eq('park_id',row.park_id).eq('machine_id',row.machine_id).eq('is_active',true).order('camera_code');
       if(streamError) throw streamError;
-      row.settings={...row.settings,camera_streams:(streams??[]).map(s=>({id:s.id,park_id:s.park_id,machine_id:s.machine_id,camera_code:s.camera_code,legacy_customer_code:s.legacy_customer_code,mode:s.mode,shadow_mode:s.shadow_mode,raw_dir:s.raw_dir,processed_dir:s.processed_dir,qrcode_dir:s.qrcode_dir,statistic_file:s.statistic_file,count_rides_enabled:s.count_rides_enabled,settings:{viewer_profile:s.settings?.viewer_profile??1,file_code_positions:s.settings?.file_code_positions??'2,3,4,5',ride_count_parity:s.settings?.ride_count_parity??'all',viewer_settings_xml:s.settings?.viewer_settings_xml}}))};
+      row.settings={...row.settings,camera_streams:(streams??[]).map(s=>({id:s.id,park_id:s.park_id,machine_id:s.machine_id,camera_code:s.camera_code,legacy_customer_code:s.legacy_customer_code,mode:s.mode,shadow_mode:s.shadow_mode,raw_dir:s.raw_dir,processed_dir:s.processed_dir,qrcode_dir:s.qrcode_dir,statistic_file:s.statistic_file,count_rides_enabled:s.count_rides_enabled,settings:{viewer_auftrag:s.settings?.viewer_auftrag,viewer_restart_enabled:s.settings?.viewer_restart_enabled,viewer_profile:s.settings?.viewer_profile??1,file_code_positions:s.settings?.file_code_positions??'2,3,4,5',ride_count_parity:s.settings?.ride_count_parity??'all',viewer_settings_xml:s.settings?.viewer_settings_xml}}))};
     }
 
     await supabase
