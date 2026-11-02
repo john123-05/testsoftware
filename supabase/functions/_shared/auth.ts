@@ -4,6 +4,7 @@ export type MachineAuth = {
   machineId: string;
   parkId: string;
   cameraCode?: string;
+  secured?: boolean;
 };
 
 function authError(message: string, status = 401): Response {
@@ -24,6 +25,8 @@ export async function requireMachineAuth(req: Request): Promise<MachineAuth> {
     if (!machineId || !parkId) {
       throw authError("missing machine or park header", 400);
     }
+    const secured = await serviceClient().from('liftpic_machine_configs').select('id').eq('machine_id',machineId).eq('park_id',parkId).eq('legacy_pairing_enabled',false).limit(1);
+    if (secured.data?.length) throw authError('device token required');
     return { machineId, parkId };
   }
 
@@ -32,7 +35,7 @@ export async function requireMachineAuth(req: Request): Promise<MachineAuth> {
   if (token) {
     let query = supabase
       .from("liftpic_machine_configs")
-      .select("machine_id, park_id, camera_code")
+      .select("machine_id, park_id, camera_code, legacy_pairing_enabled")
       .eq("device_token", token)
       .eq("is_active", true)
       .limit(1);
@@ -45,6 +48,7 @@ export async function requireMachineAuth(req: Request): Promise<MachineAuth> {
         machineId: data.machine_id,
         parkId: data.park_id,
         cameraCode: data.camera_code ?? undefined,
+        secured: data.legacy_pairing_enabled === false,
       };
     }
   }
@@ -57,6 +61,7 @@ export async function requireMachineAuth(req: Request): Promise<MachineAuth> {
       .select("machine_id, park_id, camera_code")
       .eq("machine_id", machineId)
       .eq("park_id", parkId)
+      .eq("legacy_pairing_enabled", true)
       .eq("is_active", true)
       .limit(1)
       .maybeSingle();

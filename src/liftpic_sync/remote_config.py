@@ -77,6 +77,9 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("probe_enabled", "PROBE_ENABLED"),
     ("terminal_host", "TERMINAL_HOST"),
     ("ride_count_parity", "RIDE_COUNT_PARITY"),
+    ("file_code_positions", "FILE_CODE_POSITIONS"),
+    ("viewer_profile", "VIEWER_PROFILE"),
+    ("camera_streams", "CAMERA_STREAMS_JSON"),
     ("sample_upload_minutes", "SAMPLE_UPLOAD_MINUTES"),
 )
 
@@ -105,6 +108,9 @@ def _merkmale_aus_einstellungen(config: dict[str, object]) -> dict[str, str]:
             continue
         if schluessel in FERNSCHALTBAR_BOOLEAN:
             ergebnis[env_name] = _bool_env(wert)
+        elif schluessel == "camera_streams":
+            import json
+            ergebnis[env_name] = json.dumps(wert, ensure_ascii=True, separators=(",", ":"))
         else:
             ergebnis[env_name] = str(wert)
     return ergebnis

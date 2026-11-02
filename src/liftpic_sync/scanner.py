@@ -92,7 +92,7 @@ class FolderScanner:
             # alone is not enough: cameras that restart their counter every night
             # reuse it daily, and a capture_id-only check silently dropped every
             # later sale of a number that had ever been sold before.
-            uploaded = self.store.uploaded_capture_checksums(parsed.capture_id)
+            uploaded = self.store.uploaded_capture_checksums(parsed.capture_id, self.settings.camera_code if self.settings.camera_streams_json else None)
             if uploaded and (None in uploaded or self.checksums.get(path) in uploaded):
                 continue
 

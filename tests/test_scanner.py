@@ -84,12 +84,12 @@ def test_scan_keeps_same_capture_id_on_different_days(tmp_path: Path):
     scanner = FolderScanner(settings, store)
 
     day_one = settings.processed_dir / "00047_202607141813242069.jpg"
-    day_one.write_bytes(b"day one")
+    _write_taken(day_one, b"day one", datetime(2026, 7, 14, 18, 13, 24))
     assert scanner.scan_once().queued == 1
     day_one.unlink()
 
     day_two = settings.processed_dir / "00047_202607151813242069.jpg"
-    day_two.write_bytes(b"day two")
+    _write_taken(day_two, b"day two", datetime(2026, 7, 15, 18, 13, 24))
     assert scanner.scan_once().queued == 1
 
     count = store.conn.execute("SELECT COUNT(*) FROM photo_events WHERE capture_id='00047'").fetchone()[0]

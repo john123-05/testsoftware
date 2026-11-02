@@ -105,7 +105,7 @@ def _viewer_customer_number(settings) -> str | None:
     try:
         from .viewer_settings import read_viewer_recipe
 
-        recipe = read_viewer_recipe(settings.viewer_settings_xml)
+        recipe = read_viewer_recipe(settings.viewer_settings_xml, getattr(settings, 'viewer_profile', 1))
         return recipe.customer_number if recipe and recipe.customer_number else None
     except Exception:  # darf den Heartbeat nie kosten
         return None
@@ -247,6 +247,11 @@ class LiftpicService:
     def _build_workers(self) -> None:
         self.ride_tracker = RideTracker(self.settings, self.store)
         self.scanner = FolderScanner(self.settings, self.store)
+        if self.settings.camera_streams_json:
+            from .camera_streams import stream_settings, CombinedScanner, CombinedRides
+            streams = stream_settings(self.settings)
+            self.scanner = CombinedScanner([FolderScanner(s, self.store) for s in streams])
+            self.ride_tracker = CombinedRides([RideTracker(s, self.store) for s in streams])
         self.uploader = UploadWorker(self.settings, self.store)
         self.asset_sync = AssetSyncWorker(self.settings, self.store)
         self.client = SupabaseIngestClient(self.settings)
@@ -486,6 +491,13 @@ class LiftpicService:
 
         try:
             self._viewer_auftrag_pruefen(config)
+            streams=config.get('settings', {}).get('camera_streams')
+            if isinstance(streams,list):
+                from dataclasses import replace
+                for stream in streams:
+                    options=stream.get('settings') or {}
+                    if options.get('viewer_auftrag') and options.get('viewer_settings_xml'):
+                        self._viewer_auftrag_pruefen({'settings':options},replace(self.settings,viewer_settings_xml=Path(options['viewer_settings_xml']),viewer_restart_enabled=bool(options.get('viewer_restart_enabled',False))))
         except Exception as exc:  # darf die Konfiguration nie kosten
             log.warning("viewer order failed: %s", exc)
 
@@ -664,7 +676,7 @@ class LiftpicService:
             ),
         )
 
-    def _viewer_auftrag_pruefen(self, config: dict) -> None:
+    def _viewer_auftrag_pruefen(self, config: dict, target_settings=None) -> None:
         """QR-Code/Preis im Verkaufsprogramm setzen, beauftragt aus dem CRM.
 
         Gleiches Muster wie der Kameraauftrag: reist in `settings.viewer_auftrag`,
@@ -684,7 +696,8 @@ class LiftpicService:
             return
 
         log.warning("carrying out viewer order '%s': %s", auftrag_id, sorted(werte))
-        ergebnis = schreibe_viewer(self.settings.viewer_settings_xml, werte)
+        target_settings = target_settings or self.settings
+        ergebnis = schreibe_viewer(target_settings.viewer_settings_xml, werte)
         if ergebnis.fehler and not ergebnis.geschrieben:
             self.store.record_health_event(
                 kind="viewer", severity="error",
@@ -697,7 +710,7 @@ class LiftpicService:
         # Das Verkaufsprogramm liest die Datei nur beim Start.
         neustart_text = "greift beim nächsten Start des Verkaufsprogramms"
         if auftrag.get("neustart") == "now":
-            neustart_text = restart_program(self.settings, "viewer").reason
+            neustart_text = restart_program(target_settings, "viewer").reason
         teile = ", ".join(f"{k}={v}" for k, v in sorted(ergebnis.geschrieben.items()))
         self.store.record_health_event(
             kind="viewer",

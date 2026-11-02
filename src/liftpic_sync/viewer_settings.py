@@ -42,7 +42,7 @@ class ViewerCodeRecipe:
         return not self.customer_number and not self.code_positions
 
 
-def read_viewer_recipe(settings_path: Path | str | None) -> ViewerCodeRecipe | None:
+def read_viewer_recipe(settings_path: Path | str | None, profile: int = 1) -> ViewerCodeRecipe | None:
     """Read customer number and picture-code positions from Settings.xml.
 
     Returns None when the file is missing or unreadable - the caller then keeps
@@ -66,8 +66,11 @@ def read_viewer_recipe(settings_path: Path | str | None) -> ViewerCodeRecipe | N
         log.warning("could not read viewer settings %s: %s", path, exc)
         return None
 
-    customer = _first_tag(text, "CustomerNumber")
-    positions = _first_tag(text, "CodePositionsInFilename")
+    suffix = '' if profile == 1 else str(profile)
+    if profile not in (1, 2, 3):
+        return None
+    customer = _first_tag(text, 'CustomerNumber' + suffix)
+    positions = _first_tag(text, 'CodePositionsInFilename' + suffix)
     prefix = _first_tag(text, "QrCodeBeginningString")
 
     if customer is None and positions is None:

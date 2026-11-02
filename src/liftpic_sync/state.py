@@ -622,7 +622,7 @@ class StateStore:
         ).fetchall()
         return {row["upload_status"]: int(row["count"]) for row in rows}
 
-    def uploaded_capture_checksums(self, capture_id: str) -> set[str | None]:
+    def uploaded_capture_checksums(self, capture_id: str, camera_code: str | None = None) -> set[str | None]:
         """Checksums of every uploaded (or shadowed) photo with this capture number.
 
         The number alone does not identify a photo: most cameras restart their
@@ -631,8 +631,8 @@ class StateStore:
         phantom duplicates of 30/31.07.2026 did), a new photo does not.
         """
         rows = self.conn.execute(
-            "SELECT checksum FROM photo_events WHERE capture_id=? AND upload_status IN ('uploaded','shadowed')",
-            (capture_id,),
+            "SELECT checksum FROM photo_events WHERE capture_id=? AND upload_status IN ('uploaded','shadowed') AND (? IS NULL OR json_extract(metadata_json,'$.camera_code')=?)",
+            (capture_id, camera_code, camera_code),
         ).fetchall()
         return {row["checksum"] for row in rows}
 

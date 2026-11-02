@@ -28,7 +28,12 @@ class UploadWorker:
                 source_path = self._source_path(row)
                 metadata = json.loads(row["metadata_json"])
 
-                if self.settings.shadow_mode:
+                stream_shadow = False
+                if self.settings.camera_streams_json:
+                    streams = json.loads(self.settings.camera_streams_json)
+                    stream = next((s for s in streams if s['camera_code'] == metadata.get('camera_code')), None)
+                    stream_shadow = stream is None or stream.get('shadow_mode', True) or stream.get('mode') == 'count_only'
+                if self.settings.shadow_mode or stream_shadow:
                     storage_path = self._storage_path(row["legacy_filename"], row["captured_at"])
                     self.store.mark_shadowed(event_key, f"shadow://{storage_path}")
                     uploaded += 1
