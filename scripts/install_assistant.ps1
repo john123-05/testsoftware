@@ -32,6 +32,7 @@ try {
  if (-not (Test-Path "$package\src\liftpic_sync\assistant_setup.py")) { throw 'Installationspaket unvollstaendig.' }
  Copy-Item "$package\src" -Destination $dir -Recurse -Force
  Copy-Item "$package\scripts" -Destination $dir -Recurse -Force
+ if (Test-Path "$package\assets") { Copy-Item "$package\assets" -Destination $dir -Recurse -Force }
  $python=$null
  foreach ($candidate in @(Get-Command python.exe,py.exe -All -ErrorAction SilentlyContinue)) {
   if ($candidate.Source -like '*\WindowsApps\*') { continue }
