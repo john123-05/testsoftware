@@ -23,7 +23,8 @@ export async function commitOnlinePhoto(auth:MachineAuth,event:any,path:string){
  const actual=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
  const jpeg=new Uint8Array(bytes);
  if(actual!==checksum||jpeg[0]!==255||jpeg[1]!==216)throw new Error('Online original checksum/type mismatch');
- const row={park_id:auth.parkId,machine_id:auth.machineId,camera_code:event.camera_code,claim_code:code,storage_path:path,checksum_sha256:checksum,captured_at:event.captured_at,is_test:event.metadata?.is_test===true};
+ const photo_number=/^\d{1,5}$/.test(String(event.capture_id??''))?String(event.capture_id).padStart(5,'0'):null;
+ const row={photo_number,park_id:auth.parkId,machine_id:auth.machineId,camera_code:event.camera_code,claim_code:code,storage_path:path,checksum_sha256:checksum,captured_at:event.captured_at,is_test:event.metadata?.is_test===true};
  if(row.is_test){
   const result=await db.from('photo_events').update({upload_status:'uploaded',error:null}).eq('machine_id',auth.machineId).eq('event_key',event.metadata.event_key);
   if(result.error)throw result.error;
