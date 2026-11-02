@@ -755,7 +755,8 @@ class LiftpicService:
         protokoll = ordner / "update.log"
         url = f"https://raw.githubusercontent.com/john123-05/testsoftware/{tag}/scripts/update_liftpic.ps1"
         try:
-            with urllib.request.urlopen(url, timeout=30) as antwort:
+            from .tls import open_url
+            with open_url(url, timeout=30) as antwort:
                 skript.write_bytes(antwort.read())
             befehl = (
                 f'cmd /c powershell -NoProfile -ExecutionPolicy Bypass -File "{skript}" -Tag {tag} '
