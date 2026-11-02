@@ -120,11 +120,12 @@ def test_ohne_bildschirm_gibt_es_keine_neustart_ziele(tmp_path: Path, monkeypatc
     assert [p.key for p in vc.restartable_programs(settings)] == ["viewer"]
 
     monkeypatch.setattr(vc, "laeuft_ohne_bildschirm", lambda: True)
+    monkeypatch.setattr(vc, "angemeldeter_benutzer", lambda: None)
     assert vc.restartable_programs(settings) == []
 
     ergebnis = vc.trigger_test_photo(settings)
     assert ergebnis.performed is False
-    assert "Bildschirmzugriff" in ergebnis.reason
+    assert "niemand ist angemeldet" in ergebnis.reason
 
 
 def test_sitzungspruefung_sagt_im_zweifel_nichts(monkeypatch):

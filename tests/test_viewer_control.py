@@ -7,14 +7,19 @@ startet eine zweite Instanz - die sich als Einzelinstanz sofort beendet - und
 meldet anschliessend "ist nicht wieder hochgekommen", obwohl es durchlief.
 """
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pytest
 
 from liftpic_sync import viewer_control
 
 
-EXE = Path(r"C:\liftpic\samuel_neu\PhotoViewerFacebook!.exe")
+class WindowsTestPath(PureWindowsPath):
+    # These process fixtures describe Windows paths even on a macOS/Linux runner.
+    def resolve(self, strict=False):
+        return self
+
+EXE = WindowsTestPath(r"C:\liftpic\samuel_neu\PhotoViewerFacebook!.exe")
 
 
 def _antwort(zeilen, monkeypatch):

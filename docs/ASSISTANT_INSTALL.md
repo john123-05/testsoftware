@@ -20,6 +20,6 @@ Version 0.4.0. Das `liftpic-install.zip` enthält ausschließlich `src/` und `sc
 
 Python-Tests für Scanner, Remote-Konfiguration, Viewer-XML, Fahrtenzählung und neue Einrichtungslogik; der Exporter wurde zusätzlich unter PowerShell mit Dateifixtures ausgeführt. Alle neuen PowerShell-Dateien wurden mit dem echten Parser geprüft.
 
-Die vollständige bestehende Python-Suite hat auf macOS vier bereits auf dem unveränderten Hauptbranch reproduzierbare Fehler in älteren Viewer-/Sitzungstests. Die neuen Einrichtungs-/Scanner-Tests bestehen.
+Die bereits auf dem unveränderten Hauptbranch fehlschlagenden Viewer-/Sitzungsfixtures wurden an die Benutzer-Sitzungsübergabe ab v0.3.0 und portable Windows-Pfade angepasst. Die vollständige Suite wird vor dem Release erneut geprüft.
 
 Ein realer Windows-PC mit Aufgabenplanung, Kamera, Drucker und Terminal steht dieser Entwicklungssitzung nicht zur Verfügung. Autostart nach Reboot, echter Agentenabsturz/Wächter und Rückweg müssen vor dem ersten Kundenrollout auf einem Test-PC geprüft werden. Ein erfolgreicher Build oder gesendeter Herzschlag ersetzt diese Abnahme nicht.
