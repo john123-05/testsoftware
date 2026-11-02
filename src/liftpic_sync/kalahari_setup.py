@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import json
+import shutil
 from pathlib import Path
 from .config import Settings
 from .viewer_settings import read_viewer_recipe
@@ -31,13 +32,17 @@ def prepare(root: Path, configure: bool = False):
     logo=root/'assets'/'kalahari'/'tom-foolerys-logo.png'
     if not logo.is_file():
         raise ValueError('Reviewed Kalahari logo is missing')
+    # The credential directory is restricted to SYSTEM/Administrators. Samuel
+    # also runs as a normal user after reboot, so its public logo belongs beside Settings.xml.
+    viewer_logo=Path(viewer).parent/'liftpictures-kalahari-logo.png'
     changes={'QrCodeBeginningString':QR,'EnableQrCodeShare':True,'PriceQrCodeShare':'0',
              'EnablePrint':False,'EnableEmail':False,'EnableCreditCardPayment':False,
-             'LogoFilename':str(logo),'SinglePhotoLogoFilename':str(logo),'DefaultPhoto':str(logo)}
+             'LogoFilename':str(viewer_logo),'SinglePhotoLogoFilename':str(viewer_logo),'DefaultPhoto':str(viewer_logo)}
     if any(k not in values for k in changes):
         raise ValueError('Expected Samuel settings are missing; no partial changes allowed')
     if not configure:
         return {'checked':True,'customer_code':'4761','source':str(settings.raw_dir),'qr_target':QR}
+    shutil.copyfile(logo,viewer_logo)
     result=schreibe_viewer(viewer,changes)
     if result.fehler or result.abgelehnt:
         raise ValueError('Samuel configuration could not be updated completely')

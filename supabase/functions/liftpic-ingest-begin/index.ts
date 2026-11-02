@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
       // Once committed, never issue another upload URL that can overwrite this original.
       const previous=await supabase.from('online_photo_assets').select('checksum_sha256,storage_path').eq('park_id',auth.parkId).eq('claim_code',String(legacyFilename).slice(0,16)).maybeSingle();
       if(previous.error)throw previous.error;
-      if(previous.data){
+      if(previous.data&&!isTest){
         if(previous.data.checksum_sha256!==metadata.checksum_sha256||previous.data.storage_path!==storagePath)return json({error:'Photo code collision'},409);
         return json({already_uploaded:true,upload:{bucket,storage_path:storagePath}});
       }

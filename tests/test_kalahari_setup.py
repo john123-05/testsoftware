@@ -22,6 +22,8 @@ def test_customer_setup_backs_up_and_changes_only_approved_viewer_fields(tmp_pat
     assert '<EnablePrint>false</EnablePrint>' in xml.read_text()
     assert '<EnableQrCodeShare>true</EnableQrCodeShare>' in xml.read_text()
     assert '<Unrelated>keep</Unrelated>' in xml.read_text()
+    assert str(tmp_path/'liftpictures-kalahari-logo.png') in xml.read_text()
+    assert (tmp_path/'liftpictures-kalahari-logo.png').read_bytes()==b'logo'
     from pathlib import Path
     assert Path(result['backup']).read_text()==original
 

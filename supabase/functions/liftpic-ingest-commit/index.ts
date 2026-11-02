@@ -120,11 +120,13 @@ Deno.serve(async (req) => {
     const bucket = Deno.env.get("LIFTPIC_BUCKET") ?? "test";
     const supabase = serviceClient();
     // The online shop keeps inventory private and never touches the kiosk sales rollup.
-    let pending=supabase.from('photo_events').select('*').eq('machine_id',auth.machineId);
-    pending=eventKey?pending.eq('event_key',eventKey):pending.eq('capture_id',captureId);
-    const candidate=await pending.maybeSingle();
-    if(candidate.error)throw candidate.error;
-    if(candidate.data&&await onlineStream(auth,candidate.data.camera_code)){
+    const onlineMachine=await supabase.from('liftpic_machine_configs').select('id').eq('machine_id',auth.machineId).eq('park_id',auth.parkId).eq('is_active',true).contains('settings',{online_sales:true}).limit(1);
+    if(onlineMachine.error)throw onlineMachine.error;
+    if(onlineMachine.data?.length){
+      if(!eventKey)return json({error:'Online upload requires event_key'},400);
+      const candidate=await supabase.from('photo_events').select('*').eq('machine_id',auth.machineId).eq('event_key',eventKey).maybeSingle();
+      if(candidate.error)throw candidate.error;
+      if(!candidate.data||!await onlineStream(auth,candidate.data.camera_code))return json({error:'Online event not found'},404);
       return json(await commitOnlinePhoto(auth,candidate.data,storagePath));
     }
     let query = supabase
