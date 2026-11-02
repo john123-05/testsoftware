@@ -10,6 +10,7 @@ import urllib.request
 from .envfile import write_env_values
 from .remote_config import config_to_env
 from .viewer_settings import read_viewer_recipe
+from .tls import open_url
 BASE = 'https://kvpcwlcfgmsmarjtwpsx.supabase.co/functions/v1/liftpictures-mcp/install'
 
 def request(action: str, payload: dict, token: str = '') -> dict:
@@ -17,7 +18,7 @@ def request(action: str, payload: dict, token: str = '') -> dict:
     if token:
         headers['Authorization'] = 'Bearer ' + token
     req = urllib.request.Request(BASE + '/' + action, data=json.dumps(payload).encode(), headers=headers, method='POST')
-    with urllib.request.urlopen(req, timeout=30) as response:
+    with open_url(req, timeout=30) as response:
         return json.load(response)
 
 def build_environment(response: dict) -> dict[str, str]:

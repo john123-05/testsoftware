@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Settings
+from .tls import open_url
 
 
 class AuthError(RuntimeError):
@@ -79,7 +80,7 @@ class SupabaseIngestClient:
     def download_signed_url(self, signed_url: str) -> bytes:
         request = urllib.request.Request(signed_url, method="GET")
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with open_url(request, timeout=60) as response:
                 if response.status >= 400:
                     raise RuntimeError(f"signed download failed with HTTP {response.status}")
                 return response.read()
@@ -98,7 +99,10 @@ class SupabaseIngestClient:
         signed_url: str | None,
         path: Path,
     ) -> None:
-        if bucket and storage_path and token and self.settings.supabase_url and self.settings.supabase_anon_key:
+        # The standalone Windows agent uses one explicit native TLS verifier
+        # for every request, even if a different uploader installed an SDK globally.
+        import sys
+        if sys.platform != 'win32' and bucket and storage_path and token and self.settings.supabase_url and self.settings.supabase_anon_key:
             try:
                 from supabase import create_client
 
@@ -125,9 +129,10 @@ class SupabaseIngestClient:
             headers={
                 "Content-Type": content_type,
                 "Content-Length": str(len(data)),
+                "x-upsert": "true",
             },
         )
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with open_url(request, timeout=60) as response:
             if response.status >= 400:
                 raise RuntimeError(f"signed upload failed with HTTP {response.status}")
 
@@ -153,7 +158,7 @@ class SupabaseIngestClient:
             headers=headers,
         )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with open_url(request, timeout=30) as response:
                 raw = response.read().decode("utf-8")
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as exc:
