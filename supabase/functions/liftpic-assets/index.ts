@@ -18,6 +18,22 @@ type AssetRow = {
   updated_at: string;
 };
 
+/**
+ * Assets for one machine, plus any pending viewer restart order.
+ *
+ * Some assets only take effect after the kiosk viewer restarts, and
+ * hintergrund.png is even held open by it - the agent cannot replace that file
+ * at all while the viewer runs. The dashboard therefore parks an order in
+ * liftpic_machine_configs.settings.pending_restart. It is handed over here (the
+ * machine already polls this endpoint) and cleared once the machine reports
+ * back with `restart_ack`.
+ *
+ * Deliberately stored in the existing jsonb `settings` column: no schema change,
+ * nothing to migrate on the production project.
+ *
+ * The restart part is strictly additive - a machine running an older agent build
+ * simply ignores the extra field and behaves exactly as before.
+ */
 Deno.serve(async (req) => {
   try {
     if (req.method !== "POST") {
@@ -27,7 +43,47 @@ Deno.serve(async (req) => {
     const auth = await requireMachineAuth(req);
     const body = await req.json().catch(() => ({}));
     const cameraCode = String(body.camera_code ?? auth.cameraCode ?? "default");
+    const restartAck = typeof body.restart_ack === "string" ? body.restart_ack.trim() : "";
     const supabase = serviceClient();
+
+    // Restart order handling is wrapped so a hiccup here can never break the
+    // asset delivery the machines rely on.
+    let pendingRestart: Record<string, unknown> | null = null;
+    try {
+      const { data: config } = await supabase
+        .from("liftpic_machine_configs")
+        .select("id, settings")
+        .eq("machine_id", auth.machineId)
+        .eq("camera_code", cameraCode)
+        .maybeSingle();
+
+      const settings = (config?.settings ?? {}) as Record<string, unknown>;
+      pendingRestart = (settings.pending_restart ?? null) as Record<string, unknown> | null;
+
+      if (restartAck && config?.id && pendingRestart) {
+        const pendingId = String(pendingRestart.id ?? pendingRestart.requested_at ?? "");
+        if (!pendingId || pendingId === restartAck || restartAck === "done") {
+          const history = Array.isArray(settings.restart_history) ? settings.restart_history : [];
+          await supabase
+            .from("liftpic_machine_configs")
+            .update({
+              settings: {
+                ...settings,
+                pending_restart: null,
+                last_restart_at: new Date().toISOString(),
+                restart_history: [
+                  { ...pendingRestart, done_at: new Date().toISOString() },
+                  ...history,
+                ].slice(0, 10),
+              },
+            })
+            .eq("id", config.id);
+          pendingRestart = null;
+        }
+      }
+    } catch (_restartErr) {
+      pendingRestart = null;
+    }
 
     const { data, error } = await supabase
       .from("liftpic_asset_deployments")
@@ -71,7 +127,7 @@ Deno.serve(async (req) => {
       .eq("machine_id", auth.machineId)
       .eq("camera_code", cameraCode);
 
-    return json({ ok: true, assets });
+    return json({ ok: true, assets, restart_request: pendingRestart });
   } catch (err) {
     if (err instanceof Response) return err;
     return json({ error: String(err) }, 500);

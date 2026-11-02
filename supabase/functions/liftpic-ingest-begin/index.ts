@@ -1,6 +1,18 @@
 import { json, requireMachineAuth } from "../_shared/auth.ts";
 import { serviceClient } from "../_shared/supabase.ts";
 
+/**
+ * Die Kundennummer aus dem 16-stelligen Codenamen zurueckrechnen.
+ *
+ * Dieselbe Rechnung wie `parse_source_customer_code` in der Datenbank:
+ * Positionen 1, 9, 4, 10 (1-basiert).
+ */
+function customerCodeFromName(filename: string): string | null {
+  const core = filename.replace(/\.[^.]+$/, "");
+  if (!/^\d{16}$/.test(core)) return null;
+  return core[0] + core[8] + core[3] + core[9];
+}
+
 Deno.serve(async (req) => {
   try {
     const auth = await requireMachineAuth(req);
@@ -15,10 +27,59 @@ Deno.serve(async (req) => {
       return json({ error: "metadata.legacy_filename is required" }, 400);
     }
 
-    const date = String(capturedAt).slice(0, 10);
-    const storagePath = `processed/${parkSlug}/${date}/${legacyFilename}`;
+    const isTest = metadata.is_test === true;
     const supabase = serviceClient();
 
+    // Schutz fuer Testfotos.
+    //
+    // Die Fotozeile entsteht nicht hier, sondern im Datenbank-Trigger - und der
+    // leitet den Park aus der Kundennummer IM DATEINAMEN ab. Findet er sie
+    // nicht in `park_cameras`, faellt er auf die Zuordnung Bucket -> Park
+    // zurueck, und der gemeinsame Bucket `test` zeigt auf einen fremden Park.
+    //
+    // Genau so ist am 15.08.2026 ein Testfoto des Testrechners in Imsts Daten
+    // gelandet: der Automat schreibt die Kundennummer des Verkaufsprogramms
+    // (1234) in den Namen, registriert war aber nur 7623.
+    //
+    // Hier ist der Park durch die Anmeldung bekannt. Also wird geprueft, ob der
+    // Name auch wirklich dorthin zeigt - und der Upload sonst abgelehnt.
+    // Bewusst nur fuer Testfotos: echte Aufnahmen verhalten sich unveraendert.
+    if (isTest) {
+      const code = customerCodeFromName(String(legacyFilename));
+      if (!code) {
+        return json({
+          error: `Testfoto abgelehnt: '${legacyFilename}' ist kein 16-stelliger Codename.`,
+        }, 400);
+      }
+      const { data: cams } = await supabase
+        .from("park_cameras")
+        .select("park_id")
+        .eq("customer_code", code)
+        .eq("is_active", true);
+      const parks = new Set((cams ?? []).map((c: { park_id: string }) => c.park_id));
+      if (parks.size !== 1 || !parks.has(auth.parkId)) {
+        return json({
+          error: `Testfoto abgelehnt: Kundennummer ${code} ist fuer diesen Park ` +
+            `nicht registriert - das Foto wuerde einem fremden Park zugeordnet. ` +
+            `Bitte ${code} in park_cameras eintragen.`,
+        }, 409);
+      }
+    }
+
+    const date = String(capturedAt).slice(0, 10);
+    // Test photos live under .../testfoto/... - handle_new_storage_object spots
+    // that segment and marks the row is_test, so it never counts as a sale.
+    // Without the flag the path is byte-identical to before, which is what
+    // every existing machine keeps producing.
+    const testSegment = isTest ? "testfoto/" : "";
+    const storagePath = `processed/${parkSlug}/${testSegment}${date}/${legacyFilename}`;
+
+    if(auth.secured){
+      const {data:configs,error:configError}=await supabase.from('liftpic_machine_configs').select('camera_code,legacy_customer_code,shadow_mode,mode,parks(slug)').eq('machine_id',auth.machineId).eq('park_id',auth.parkId).eq('is_active',true);
+      const stream=configs?.find(c=>c.camera_code===metadata.camera_code&&c.legacy_customer_code===(metadata.customer_code??customerCodeFromName(String(legacyFilename))));
+      if(configError||!stream||(!isTest&&(stream.shadow_mode||stream.mode==='count_only'))||(stream.parks as any)?.slug!==parkSlug||!/^\d{16}\.jpg$/i.test(legacyFilename))return json({error:'Unapproved camera, filename, target or upload mode'},403);
+      metadata.customer_code=stream.legacy_customer_code;
+    }
     const { error: upsertError } = await supabase.from("photo_events").upsert({
       park_id: auth.parkId,
       park_slug: parkSlug,
@@ -50,7 +111,7 @@ Deno.serve(async (req) => {
       upload: {
         bucket,
         storage_path: storagePath,
-        signed_url: data.signedUrl ?? data.signedURL,
+        signed_url: data.signedUrl,
         token: data.token,
       },
     });

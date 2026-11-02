@@ -172,6 +172,8 @@ class Settings:
     # ein Automat mit QRCODE_DIR_2 in der .env bekommt den zweiten Ordner
     # ueberhaupt gescannt.
     qrcode_dir_2: Path | None = None
+    camera_streams_json: str = ""
+    viewer_profile: int = 1
 
     @classmethod
     def from_env_file(cls, env_path: str | Path | None = None) -> "Settings":
@@ -259,6 +261,8 @@ class Settings:
             webout_dir=Path(webout) if webout else None,
             qrcode_dir=Path(qrcode) if qrcode else None,
             qrcode_dir_2=Path(qrcode2) if qrcode2 else None,
+            camera_streams_json=_get(values, "CAMERA_STREAMS_JSON", ""),
+            viewer_profile=int(_get(values, "VIEWER_PROFILE", "1")),
             upload_source=_get(values, "UPLOAD_SOURCE", "qrcode").strip().lower(),
             stage_in_shadow=parse_bool(_get(values, "STAGE_IN_SHADOW", "false"), False),
             statistic_file=Path(statistic_file) if statistic_file else None,
@@ -352,7 +356,7 @@ class Settings:
         """
         from .viewer_settings import read_viewer_recipe
 
-        recipe = read_viewer_recipe(self.viewer_settings_xml)
+        recipe = read_viewer_recipe(self.viewer_settings_xml, self.viewer_profile)
         if recipe is None or recipe.is_empty():
             return self
 

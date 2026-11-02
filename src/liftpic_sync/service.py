@@ -105,7 +105,7 @@ def _viewer_customer_number(settings) -> str | None:
     try:
         from .viewer_settings import read_viewer_recipe
 
-        recipe = read_viewer_recipe(settings.viewer_settings_xml)
+        recipe = read_viewer_recipe(settings.viewer_settings_xml, getattr(settings, 'viewer_profile', 1))
         return recipe.customer_number if recipe and recipe.customer_number else None
     except Exception:  # darf den Heartbeat nie kosten
         return None
@@ -247,6 +247,11 @@ class LiftpicService:
     def _build_workers(self) -> None:
         self.ride_tracker = RideTracker(self.settings, self.store)
         self.scanner = FolderScanner(self.settings, self.store)
+        if self.settings.camera_streams_json:
+            from .camera_streams import stream_settings, CombinedScanner, CombinedRides
+            streams = stream_settings(self.settings)
+            self.scanner = CombinedScanner([FolderScanner(s, self.store) for s in streams])
+            self.ride_tracker = CombinedRides([RideTracker(s, self.store) for s in streams])
         self.uploader = UploadWorker(self.settings, self.store)
         self.asset_sync = AssetSyncWorker(self.settings, self.store)
         self.client = SupabaseIngestClient(self.settings)
