@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
     if(auth.secured){
       const {data:configs,error:configError}=await supabase.from('liftpic_machine_configs').select('camera_code,legacy_customer_code,shadow_mode,mode,parks(slug)').eq('machine_id',auth.machineId).eq('park_id',auth.parkId).eq('is_active',true);
       const stream=configs?.find(c=>c.camera_code===metadata.camera_code&&c.legacy_customer_code===(metadata.customer_code??customerCodeFromName(String(legacyFilename))));
-      if(configError||!stream||(!isTest&&(stream.shadow_mode||stream.mode==='count_only'))||(stream.parks as any)?.slug!==parkSlug||!/^\d{16}\.jpg$/i.test(legacyFilename))return json({error:'Unapproved camera, filename, target or upload mode'},403);
+      if(configError||!stream||customerCodeFromName(String(legacyFilename))!==stream.legacy_customer_code||(!isTest&&(stream.shadow_mode||stream.mode==='count_only'))||(stream.parks as any)?.slug!==parkSlug||!/^\d{16}\.jpg$/i.test(legacyFilename))return json({error:'Unapproved camera, filename, target or upload mode'},403);
       metadata.customer_code=stream.legacy_customer_code;
     }
     const { error: upsertError } = await supabase.from("photo_events").upsert({
