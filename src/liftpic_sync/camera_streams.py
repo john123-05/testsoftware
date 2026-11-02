@@ -24,7 +24,7 @@ def stream_settings(settings):
             raw_dir=Path(c['raw_dir']),processed_dir=Path(c['processed_dir']),
             qrcode_dir=Path(c['qrcode_dir']) if c.get('qrcode_dir') else None,qrcode_dir_2=None,
             statistic_file=Path(c['statistic_file']) if c.get('statistic_file') else None,
-            upload_source='statistic' if c['mode']=='sold_via_statistic' else 'qrcode',
+            upload_source='statistic' if c['mode']=='sold_via_statistic' else 'online' if c['mode']=='all_photos' and opts.get('online_sales') is True else 'qrcode',
             shadow_mode=settings.shadow_mode or c.get('shadow_mode',True) or c['mode']=='count_only',
             ride_count_enabled=c.get('count_rides_enabled',True),ride_count_parity=opts.get('ride_count_parity','all'),
             file_code_positions=opts.get('file_code_positions','2,3,4,5'),viewer_profile=int(opts.get('viewer_profile') or 1),

@@ -109,6 +109,22 @@ def mix_customer_time_capture(customer_code: str, time_code: str, file_code: str
     )
 
 
+def viewer_file_code(filename: str, positions: str) -> str:
+    """Samuel counts positions in the actual filename, including letter prefixes.
+
+    The online capture flow has no jpeg4web rename step. Never strip/pad the
+    camera name before applying Samuel's positions (I00006 -> positions 3..6).
+    """
+    stem = Path(filename).stem
+    indexes = [int(x.strip()) - 1 for x in positions.split(",")]
+    if len(indexes) != 4 or any(i < 0 or i >= len(stem) for i in indexes):
+        raise ValueError("Samuel code positions do not match the camera filename")
+    value = "".join(stem[i] for i in indexes)
+    if not re.fullmatch(r"[0-9]{4}", value):
+        raise ValueError("Samuel code positions must select four digits")
+    return value
+
+
 def _four_digits(value: str) -> str:
     digits = re.sub(r"\D", "", value or "")
     if not digits:

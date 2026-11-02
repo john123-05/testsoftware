@@ -7,10 +7,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import Settings
-from .filename_codec import build_legacy_filename, parse_capture_filename
+from .filename_codec import build_legacy_filename, parse_capture_filename, viewer_file_code
 from .files import ChecksumCache, is_image, is_stable
 from .identity import build_event_key
-from .speed import capture_time, find_same_day_processed_file, speed_from_processed_name, speed_from_speedshot_log
+from .speed import SpeedMatch, capture_time, find_same_day_processed_file, speed_from_processed_name, speed_from_speedshot_log
 from .state import PhotoEvent, StateStore
 
 # A sold-photo line in a Statistic.txt-style sale log, e.g.:
@@ -144,11 +144,24 @@ class FolderScanner:
                 logged = speed_from_speedshot_log(self.settings.speed_log_file, parsed.capture_id, local_day)
                 if logged.status == "ok":
                     speed_match = logged
+            code_capture_id = parsed.capture_id
+            code_positions = self.settings.file_code_positions
+            if self.settings.upload_source == "online":
+                try:
+                    code_capture_id = viewer_file_code(path.name, code_positions)
+                except ValueError:
+                    skipped_unknown += 1
+                    continue
+                code_positions = "1,2,3,4"
+                # Samuel uses the PC's local day. Retain its timezone offset
+                # in captured_at instead of turning evening photos into tomorrow's code.
+                captured_at = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+                speed_match = SpeedMatch(None, "not_requested", "none")
             legacy = build_legacy_filename(
                 customer_code=self.settings.customer_code,
-                capture_id=parsed.capture_id,
+                capture_id=code_capture_id,
                 captured_at=captured_at,
-                file_code_positions=self.settings.file_code_positions,
+                file_code_positions=code_positions,
             )
             business_date = captured_at.date().isoformat()
             event_key = build_event_key(
@@ -297,7 +310,10 @@ class FolderScanner:
         return None
 
     def _scan_folders(self) -> list[Path]:
-        if self.settings.upload_source == "qrcode" and self.settings.qrcode_dir:
+        if self.settings.upload_source == "online":
+            # Explicit capture folder only: do not rescan exports, sold folders or thumbnails.
+            folders = [self.settings.raw_dir]
+        elif self.settings.upload_source == "qrcode" and self.settings.qrcode_dir:
             folders = [self.settings.qrcode_dir]
             if self.settings.qrcode_dir_2:
                 folders.append(self.settings.qrcode_dir_2)

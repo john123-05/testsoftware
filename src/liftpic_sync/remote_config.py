@@ -15,7 +15,7 @@ def config_to_env(config: dict[str, object], device_token: str) -> dict[str, str
     mode = str(config.get("mode") or "sold_only")
     upload_source = "qrcode"
     if mode == "all_photos":
-        upload_source = "processed"
+        upload_source = "online" if (config.get("settings") or {}).get("online_sales") is True else "processed"
     if mode == "count_only":
         upload_source = "processed"
     # Sale software with no qrcode staging step (Plose): "Kaufen" only appends

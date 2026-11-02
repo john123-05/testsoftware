@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import Settings
-from .filename_codec import build_legacy_filename
+from .filename_codec import build_legacy_filename, viewer_file_code
 
 
 log = logging.getLogger(__name__)
@@ -79,12 +79,17 @@ def baue_metadaten(settings: Settings, bild: Path) -> tuple[str, dict]:
     # Die Bildnummer aus dem Rohnamen (00001.jpg -> 00001); sonst die Uhrzeit,
     # damit zwei Testfotos desselben Tages nicht denselben Code bekommen.
     ziffern = re.sub(r"\D", "", bild.stem) or aufgenommen.strftime("%H%M%S")
+    positions = settings.file_code_positions
+    if settings.upload_source == "online":
+        ziffern = viewer_file_code(bild.name, positions)
+        positions = "1,2,3,4"
+        aufgenommen = datetime.fromtimestamp(bild.stat().st_mtime).astimezone()
 
     name = build_legacy_filename(
         customer_code=settings.customer_code,
         capture_id=ziffern,
         captured_at=aufgenommen,
-        file_code_positions=settings.file_code_positions,
+        file_code_positions=positions,
     )
     pruefe_name_ist_zuordenbar(name.filename, settings.customer_code)
 

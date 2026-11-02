@@ -1,5 +1,6 @@
 import { json, requireMachineAuth } from "../_shared/auth.ts";
 import { serviceClient } from "../_shared/supabase.ts";
+import {onlineStream,ONLINE_BUCKET} from '../_shared/onlinePhotos.ts';
 
 /**
  * Die Kundennummer aus dem 16-stelligen Codenamen zurueckrechnen.
@@ -18,7 +19,7 @@ Deno.serve(async (req) => {
     const auth = await requireMachineAuth(req);
     const body = await req.json();
     const metadata = body.metadata ?? {};
-    const bucket = Deno.env.get("LIFTPIC_BUCKET") ?? "test";
+    let bucket = Deno.env.get("LIFTPIC_BUCKET") ?? "test";
     const parkSlug = metadata.park_slug ?? "unknown-park";
     const legacyFilename = metadata.legacy_filename;
     const capturedAt = metadata.captured_at ?? new Date().toISOString();
@@ -72,7 +73,21 @@ Deno.serve(async (req) => {
     // Without the flag the path is byte-identical to before, which is what
     // every existing machine keeps producing.
     const testSegment = isTest ? "testfoto/" : "";
-    const storagePath = `processed/${parkSlug}/${testSegment}${date}/${legacyFilename}`;
+    let storagePath = `processed/${parkSlug}/${testSegment}${date}/${legacyFilename}`;
+    const online=await onlineStream(auth,metadata.camera_code??'');
+    if(online){
+      if(!/^\d{16}\.jpg$/i.test(String(legacyFilename))||customerCodeFromName(legacyFilename)!==online.legacy_customer_code||!/^[0-9a-f]{64}$/.test(metadata.checksum_sha256??'')||!/^\d{4}-\d{2}-\d{2}$/.test(date)||(online.parks as any)?.slug!==parkSlug)return json({error:'Invalid private online photo'},403);
+      bucket=ONLINE_BUCKET;
+      storagePath=`${auth.parkId}/${metadata.camera_code}/${testSegment}${date}/${metadata.checksum_sha256}.jpg`;
+      metadata.upload_bucket=ONLINE_BUCKET;
+      // Once committed, never issue another upload URL that can overwrite this original.
+      const previous=await supabase.from('online_photo_assets').select('checksum_sha256,storage_path').eq('park_id',auth.parkId).eq('claim_code',String(legacyFilename).slice(0,16)).maybeSingle();
+      if(previous.error)throw previous.error;
+      if(previous.data){
+        if(previous.data.checksum_sha256!==metadata.checksum_sha256||previous.data.storage_path!==storagePath)return json({error:'Photo code collision'},409);
+        return json({already_uploaded:true,upload:{bucket,storage_path:storagePath}});
+      }
+    }
 
     if(auth.secured){
       const {data:configs,error:configError}=await supabase.from('liftpic_machine_configs').select('camera_code,legacy_customer_code,shadow_mode,mode,parks(slug)').eq('machine_id',auth.machineId).eq('park_id',auth.parkId).eq('is_active',true);
