@@ -48,13 +48,14 @@ class UploadWorker:
                 if not storage_path:
                     raise RuntimeError("begin did not return upload.storage_path")
 
-                self.client.upload_signed(
-                    bucket=bucket,
-                    storage_path=storage_path,
-                    token=token,
-                    signed_url=signed_url,
-                    path=source_path,
-                )
+                if not begin.get("already_uploaded"):
+                    self.client.upload_signed(
+                        bucket=bucket,
+                        storage_path=storage_path,
+                        token=token,
+                        signed_url=signed_url,
+                        path=source_path,
+                    )
                 self.client.commit(capture_id, storage_path, event_key=event_key)
                 self.store.mark_uploaded(event_key, storage_path)
                 uploaded += 1

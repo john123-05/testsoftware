@@ -43,7 +43,7 @@ def check_sources(configs: list[dict]) -> tuple[bool, bool, str | None]:
         for key in ('raw_dir', 'processed_dir'):
             sources_ok &= bool(c.get(key)) and Path(c[key]).is_dir()
         source_key = 'statistic_file' if c['mode'] == 'sold_via_statistic' else 'qrcode_dir'
-        if c['mode'] != 'count_only':
+        if c['mode'] not in ('count_only', 'all_photos'):
             sources_ok &= bool(c.get(source_key)) and Path(c[source_key]).exists()
         viewer = c.get('settings', {}).get('viewer_settings_xml')
         recipe = read_viewer_recipe(viewer, int(c.get('settings', {}).get('viewer_profile') or 1))

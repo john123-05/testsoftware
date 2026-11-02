@@ -1,5 +1,6 @@
 import { json, requireMachineAuth } from "../_shared/auth.ts";
 import { serviceClient } from "../_shared/supabase.ts";
+import {onlineStream,commitOnlinePhoto} from '../_shared/onlinePhotos.ts';
 
 const SENTINEL_PARK_ID = "11111111-1111-1111-1111-111111111111";
 
@@ -118,6 +119,14 @@ Deno.serve(async (req) => {
 
     const bucket = Deno.env.get("LIFTPIC_BUCKET") ?? "test";
     const supabase = serviceClient();
+    // The online shop keeps inventory private and never touches the kiosk sales rollup.
+    let pending=supabase.from('photo_events').select('*').eq('machine_id',auth.machineId);
+    pending=eventKey?pending.eq('event_key',eventKey):pending.eq('capture_id',captureId);
+    const candidate=await pending.maybeSingle();
+    if(candidate.error)throw candidate.error;
+    if(candidate.data&&await onlineStream(auth,candidate.data.camera_code)){
+      return json(await commitOnlinePhoto(auth,candidate.data,storagePath));
+    }
     let query = supabase
       .from("photo_events")
       .update({
