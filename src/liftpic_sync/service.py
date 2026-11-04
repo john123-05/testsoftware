@@ -29,7 +29,7 @@ from .uploader import UploadWorker
 from .viewer_control import (
     _neueste_datei,
     _running_pids as _laufende_pids,
-    angemeldeter_benutzer, find_program, in_night_window, laeuft_ohne_bildschirm, restart_program,
+    angemeldeter_benutzer, find_program, kamera_tech, in_night_window, laeuft_ohne_bildschirm, restart_program,
     restartable_programs, stop_program, trigger_test_photo,
 )
 from . import __version__
@@ -1205,7 +1205,7 @@ class LiftpicService:
         if not self.settings.station_enabled or self.settings.station_dir is None:
             return
         try:
-            schreibe_station(self.settings.station_dir, {
+            schreibe_station(self.settings.station_dir, logo_url=self.settings.station_logo_url, stand={
                 "park_slug": self.settings.park_slug,
                 "machine_id": self.settings.machine_id,
                 "version": __version__,
@@ -1221,6 +1221,11 @@ class LiftpicService:
                 "disk_free_mb": payload.get("disk_free_mb"),
                 "probes": payload.get("probes") or [],
                 "skip": list(self.settings.probe_skip_programs),
+                # Fuer "Fragen & Antworten": wo auf diesem PC was liegt.
+                "raw_dir": str(self.settings.raw_dir),
+                "camera_exe": str(self.settings.camera_exe) if self.settings.camera_exe else None,
+                "camera_program": kamera_tech(self.settings.camera_exe) if self.settings.camera_exe else None,
+                "guest_screen_url": self.settings.guest_screen_url or None,
             })
         except Exception as exc:
             log.warning("station status could not be written: %s", exc)

@@ -82,6 +82,8 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("camera_streams", "CAMERA_STREAMS_JSON"),
     ("sample_upload_minutes", "SAMPLE_UPLOAD_MINUTES"),
     ("station_enabled", "STATION_ENABLED"),
+    ("station_logo_url", "STATION_LOGO_URL"),
+    ("guest_screen_url", "GUEST_SCREEN_URL"),
     ("probe_skip_programs", "PROBE_SKIP_PROGRAMS"),
 )
 

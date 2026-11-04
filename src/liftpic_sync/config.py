@@ -160,6 +160,12 @@ class Settings:
     # funktioniert ohne Internet (file://, liest status.js).
     station_enabled: bool = True
     station_dir: Path | None = None
+    # Logo des Parks fuer die Station (z. B. das weisse Kalahari-Logo). Wird
+    # einmal geladen und lokal abgelegt, damit die Seite offline bleibt.
+    station_logo_url: str = ""
+    # Gaeste-Bildschirm (Edge im Kiosk-Modus): Teil der Adresse, an dem wir ihn
+    # erkennen, z. B. "liftpictures-fotos.de/kalahari-virginia/screen".
+    guest_screen_url: str = ""
     # Payment terminal, for a plain reachability check (no protocol talk).
     terminal_host: str = ""
     terminal_port: int = 22000
@@ -331,6 +337,8 @@ class Settings:
             viewer_recipe_enabled=parse_bool(_get(values, "VIEWER_RECIPE_ENABLED", "false"), False),
             probe_enabled=parse_bool(_get(values, "PROBE_ENABLED", "true"), True),
             station_enabled=parse_bool(_get(values, "STATION_ENABLED", "true"), True),
+            station_logo_url=_get(values, "STATION_LOGO_URL", "").strip(),
+            guest_screen_url=_get(values, "GUEST_SCREEN_URL", "").strip(),
             station_dir=(
                 Path(station_raw) if (station_raw := _get(values, "STATION_DIR", "").strip())
                 else app_dir.parent / "station"

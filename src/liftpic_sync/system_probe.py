@@ -324,6 +324,33 @@ def probe_system(settings: Settings) -> list[Probe]:
     return probes
 
 
+# ------------------------------------------------------------- guest screen
+
+def probe_guest_screen(url_part: str) -> Probe:
+    """Laeuft der Gaeste-Bildschirm (Edge im Kiosk-Modus mit unserer Seite)?
+
+    Kalahari (11/2026): Auf dem zweiten Monitor zeigt Edge die Seite mit den
+    QR-Codes. Ist das Fenster zu, sehen Gaeste keine Fotos - und kein
+    Protokoll merkt es. Erkannt an der Befehlszeile: Kiosk-Modus plus Adresse.
+    """
+    key = "screen:guest"
+    out = _run_ps(
+        "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe' or Name='chrome.exe'\" | "
+        "ForEach-Object { $_.CommandLine }"
+    )
+    if out is None:
+        return Probe(key=key, name="Gäste-Bildschirm", kind="viewer", status="unknown",
+                     detail="Konnte nicht geprueft werden", tech="Edge-Kiosk")
+    teil = url_part.lower()
+    for zeile in out.splitlines():
+        z = zeile.lower()
+        if "--kiosk" in z and teil in z:
+            return Probe(key=key, name="Gäste-Bildschirm", kind="viewer", status="ok",
+                         detail="Zeigt die Fotos mit QR-Code", tech="Edge-Kiosk")
+    return Probe(key=key, name="Gäste-Bildschirm", kind="viewer", status="off",
+                 detail="Nicht geoeffnet", tech="Edge-Kiosk")
+
+
 # --------------------------------------------------------------------- time
 
 def probe_clock() -> Probe:
@@ -398,6 +425,7 @@ PROBE_PURPOSE: tuple[tuple[str, str], ...] = (
     ("disk", "Freier Speicher für neue Fotos."),
     ("memory", "Arbeitsspeicher des PCs."),
     ("uptime", "Laufzeit seit dem letzten Neustart."),
+    ("screen:", "Zweiter Monitor: zeigt Gästen ihre Fotos mit QR-Code."),
     ("clock", "Steht im Abholcode jedes Fotos - geht sie falsch, "
               "finden Gäste ihre Bilder nicht."),
 )
@@ -425,6 +453,8 @@ def collect_probes(settings: Settings) -> list[dict]:
     # Kamera separat) blenden diese Kacheln aus, statt dauerhaft "Nicht gestartet" zu melden.
     skip = {name.lower() for name in settings.probe_skip_programs}
     guard(probe_processes, [w for w in DEFAULT_PROCESSES if w[1].lower() not in skip])
+    if settings.guest_screen_url:
+        guard(probe_guest_screen, settings.guest_screen_url)
     if settings.terminal_host:
         guard(probe_tcp, settings.terminal_host, settings.terminal_port,
               "Kartenterminal", "ZVT")

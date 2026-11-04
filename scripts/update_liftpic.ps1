@@ -49,6 +49,25 @@ if (-not (Test-Path $EnvPath)) {
   throw "Keine .env unter $EnvPath - das ist keine bestehende Installation. Fuer eine Neuinstallation den Bootstrap-Installer nehmen."
 }
 
+# Welcher Python startet den Agenten? Normal das venv. Installationen ueber den
+# Assistenten (Kalahari, 11/2026) haben keins: dort startet die Aufgabe einen
+# vorhandenen Python direkt im Ordner `src`, ohne pip-Installation. Das wird
+# VOR dem Anhalten geklaert - frueher brach das Update erst nach dem Kopieren
+# ab und liess den Agenten angehalten zurueck.
+$Py = $VenvPy
+$OhneVenv = $false
+if (-not (Test-Path $VenvPy)) {
+  $aktion = @((Get-ScheduledTask -TaskName $Aufgabe -ErrorAction SilentlyContinue).Actions)[0]
+  $srcDir = Join-Path $InstallDir "src"
+  if ($aktion -and $aktion.Execute -and (Test-Path -LiteralPath $aktion.Execute) -and
+      $aktion.WorkingDirectory -and ($aktion.WorkingDirectory.TrimEnd('\') -ieq $srcDir)) {
+    $Py = $aktion.Execute
+    $OhneVenv = $true
+  } else {
+    throw "Kein venv unter $VenvPy und keine Aufgabe, die aus $srcDir startet - bitte den Bootstrap-Installer nehmen. Es wurde nichts veraendert."
+  }
+}
+
 $quelle = if ($Tag) { "$Repo/archive/refs/tags/$Tag.zip" } else { "$Repo/archive/refs/heads/main.zip" }
 Write-Host ""
 Write-Host "Aktualisierung von $InstallDir"
@@ -131,9 +150,12 @@ Write-Host "4/6 Kopiere den neuen Stand..."
 # .env, state, logs und backups liegen nicht im Archiv und ueberleben deshalb.
 Copy-Item -Path (Join-Path $entpackt.FullName "*") -Destination $InstallDir -Recurse -Force
 
-if (-not (Test-Path $VenvPy)) { throw "Kein venv unter $VenvPy - bitte den Bootstrap-Installer nehmen." }
-& $VenvPy -m pip install -e $InstallDir --quiet
-if ($LASTEXITCODE -ne 0) { throw "pip install fehlgeschlagen - der alte Stand liegt in $sicherung" }
+if ($OhneVenv) {
+  Write-Host "  Kein venv: der Agent startet mit $Py direkt aus $InstallDir\src - keine pip-Installation noetig."
+} else {
+  & $VenvPy -m pip install -e $InstallDir --quiet
+  if ($LASTEXITCODE -ne 0) { throw "pip install fehlgeschlagen - der alte Stand liegt in $sicherung" }
+}
 
 
 # ------------------------------------------------------------ 5/6 Kopplung
@@ -147,7 +169,7 @@ if ($token) {
   Write-Host "  (Das Koppeln wuerde 16 Schluessel mit Serverwerten ueberschreiben.)"
 } else {
   Write-Warning "  Kein Geraetetoken in der .env. Dieser Automat muss gekoppelt werden:"
-  Write-Warning "  $VenvPy -m liftpic_sync.cli pair --code <CODE> --env $EnvPath"
+  Write-Warning "  $Py -m liftpic_sync.cli pair --code <CODE> --env $EnvPath"
 }
 
 
@@ -183,7 +205,8 @@ Programme-Eintragen $EnvPath
 # ------------------------------------------------------------ 6/6 Bericht
 Write-Host "6/6 Lage nach dem Update:"
 Write-Host ""
-& $VenvPy -m liftpic_sync.cli preflight --env $EnvPath
+Push-Location (Join-Path $InstallDir "src")
+try { & $Py -m liftpic_sync.cli preflight --env $EnvPath } finally { Pop-Location }
 Write-Host ""
 
 function Get-Agenten {

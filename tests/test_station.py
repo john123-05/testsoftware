@@ -110,3 +110,75 @@ def test_herzschlag_schreibt_station_auch_offline(tmp_path: Path):
 def test_seite_braucht_kein_internet():
     # Keine fremden Skripte, Schriften oder Bilder: die Seite muss offline laufen.
     assert "http://" not in PAGE and "https://" not in PAGE
+
+
+# ------------------------------------------------------- Logos, Gaeste-Bildschirm
+
+class _Antwort:
+    def __init__(self, daten, art):
+        self._daten, self.headers = daten, {"Content-Type": art}
+
+    def read(self, n=-1):
+        return self._daten
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_station_legt_beide_logos_ab_und_laedt_das_parklogo_nur_einmal(tmp_path: Path):
+    import liftpic_sync.station as station
+    station._letzter_versuch.clear()
+    abrufe = []
+
+    def oeffnen(anfrage, timeout=15):
+        abrufe.append(anfrage.full_url)
+        return _Antwort(b"RIFF....WEBP", "image/webp")
+
+    ordner = tmp_path / "station"
+    url = "https://liftpictures-fotos.de/kalahari/kalahari-logo-white.webp"
+    schreibe_station(ordner, {}, logo_url=url, oeffnen=oeffnen)
+    station._letzter_versuch.clear()
+    schreibe_station(ordner, {}, logo_url=url, oeffnen=oeffnen)
+
+    assert (ordner / "liftpic-logo.png").read_bytes().startswith(b"\x89PNG")
+    assert (ordner / "park-logo").read_bytes() == b"RIFF....WEBP"
+    assert abrufe == [url]  # zweites Mal aus der lokalen Datei
+    assert '"park_logo":true' in (ordner / "status.js").read_text(encoding="utf-8")
+
+
+def test_parklogo_lehnt_fremde_inhalte_ab(tmp_path: Path):
+    import liftpic_sync.station as station
+    station._letzter_versuch.clear()
+    ordner = tmp_path / "station"
+    schreibe_station(ordner, {}, logo_url="https://x.test/logo",
+                     oeffnen=lambda a, timeout=15: _Antwort(b"<html>", "text/html"))
+    assert not (ordner / "park-logo").exists()
+    assert '"park_logo":false' in (ordner / "status.js").read_text(encoding="utf-8")
+
+
+def test_gaeste_bildschirm_wird_an_der_kiosk_befehlszeile_erkannt(monkeypatch):
+    import liftpic_sync.system_probe as sp
+    zeilen = (
+        '"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --type=renderer\n'
+        '"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe" --kiosk '
+        'https://liftpictures-fotos.de/kalahari-virginia/screen --edge-kiosk-type=fullscreen\n'
+    )
+    monkeypatch.setattr(sp, "_run_ps", lambda script, timeout=20.0: zeilen)
+    assert sp.probe_guest_screen("liftpictures-fotos.de/kalahari-virginia/screen").status == "ok"
+    monkeypatch.setattr(sp, "_run_ps", lambda script, timeout=20.0: zeilen.splitlines()[0])
+    assert sp.probe_guest_screen("liftpictures-fotos.de/kalahari-virginia/screen").status == "off"
+
+
+def test_logo_und_gaeste_bildschirm_sind_fernschaltbar():
+    env = config_to_env({
+        "park_slug": "kalahari-virginia", "park_id": "p", "machine_id": "m",
+        "settings": {
+            "station_logo_url": "https://liftpictures-fotos.de/kalahari/kalahari-logo-white.webp",
+            "guest_screen_url": "liftpictures-fotos.de/kalahari-virginia/screen",
+        },
+    }, "token")
+    assert env["STATION_LOGO_URL"].endswith("kalahari-logo-white.webp")
+    assert env["GUEST_SCREEN_URL"] == "liftpictures-fotos.de/kalahari-virginia/screen"
