@@ -200,6 +200,10 @@ def kamera_status(settings) -> dict | None:
     exe = Path(exe)
     ordner = exe.parent
     programm = exe.name
+    # Canon EOS Utility hat keine Einstellungsdatei, die wir lesen oder
+    # schreiben koennten - also auch keine Kameraseite im Dashboard.
+    if "eos utility" in programm.lower():
+        return None
 
     # Erst den in der INI genannten Namen versuchen, dann den ueblichen.
     xml_datei = _xml_pfad(ordner / "3gertis.ini")

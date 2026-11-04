@@ -171,6 +171,49 @@ def starte_in_benutzersitzung(exe: Path) -> bool:
         return False
 
 
+def kamera_tech(exe: Path | None) -> str:
+    """Welches Programm die Kamera steuert, fuer die Klammer im Dashboard."""
+    name = exe.name.lower() if exe is not None else ""
+    if "eos utility" in name:
+        return "Canon EOS Utility"
+    if "camera26" in name:
+        return "TIScapture"
+    return "3GerTis"
+
+
+def starte_falls_aus(exe: Path) -> RestartOutcome:
+    """Ein Programm starten, nur wenn es nicht schon laeuft. Haelt nie etwas an.
+
+    Fuer den Kamera-Waechter: er soll ein abgestuerztes Programm wieder
+    hochholen, aber niemals ein laufendes anfassen. Wirft nie.
+    """
+    if not exe.exists():
+        return RestartOutcome(False, f"Programm nicht gefunden: {exe}")
+    try:
+        if _running_pids(exe):
+            return RestartOutcome(True, f"{exe.stem} laeuft bereits")
+    except Exception:
+        log.exception("keepalive: could not check %s", exe)
+        return RestartOutcome(False, "Nachsehen war nicht moeglich")
+    try:
+        if laeuft_ohne_bildschirm():
+            if not starte_in_benutzersitzung(exe):
+                return RestartOutcome(
+                    False, f"{exe.stem} nicht sichtbar startbar (niemand angemeldet?)",
+                )
+        else:
+            subprocess.Popen(
+                [str(exe)],
+                cwd=str(exe.parent),
+                close_fds=True,
+                creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
+            )
+    except Exception as exc:
+        log.exception("keepalive: could not start %s", exe)
+        return RestartOutcome(False, f"{exe.stem} konnte nicht gestartet werden: {exc}")
+    return RestartOutcome(True, f"{exe.stem} gestartet")
+
+
 def restartable_programs(settings: Settings) -> list[Programm]:
     """Welche Programme dieser PC neu starten kann.
 
@@ -196,7 +239,7 @@ def restartable_programs(settings: Settings) -> list[Programm]:
     kandidaten = (
         ("viewer", "Verkaufsprogramm", "PhotoViewer", settings.viewer_exe,
          "Für etwa 20 Sekunden kann kein Foto verkauft werden."),
-        ("camera", "Kamera-Software", "3GerTis", settings.camera_exe,
+        ("camera", "Kamera-Software", kamera_tech(settings.camera_exe), settings.camera_exe,
          "Während des Neustarts entsteht kurz kein Foto. Behebt eine "
          "abgerissene Verbindung zur Kamera."),
         ("lightbarrier", "Lichtschranke", "AidaTest", settings.lightbarrier_exe,

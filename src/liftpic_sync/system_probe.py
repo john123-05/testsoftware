@@ -165,6 +165,8 @@ def probe_processes(watched: list[tuple[str, str, str, str]]) -> list[Probe]:
 PROGRAM_TECH = {
     "3gertis_v70": "3GerTis",
     "camera26": "TIScapture",
+    "eos utility 3": "Canon EOS Utility",
+    "eos utility": "Canon EOS Utility",
 }
 
 
@@ -378,7 +380,8 @@ DEFAULT_PROCESSES: list[tuple[str, str, str, str]] = [
      "Bildschirm am Automaten: Fotos, Zahlung, Druck."),
     ("AidaTest|Speedshot", "Lichtschranke", "AidaTest",
      "Erkennt Gäste und löst die Kamera aus."),
-    ("3gerTis_v70|camera26", "Kamera-Software", "3GerTis",
+    # Kalahari (11/2026): Canon EOS 2000D per USB, EOS Utility 3 holt die Bilder.
+    ("3gerTis_v70|camera26|EOS Utility 3|EOS Utility", "Kamera-Software", "3GerTis",
      "Nimmt das Foto auf."),
 ]
 

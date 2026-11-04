@@ -81,11 +81,15 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("viewer_profile", "VIEWER_PROFILE"),
     ("camera_streams", "CAMERA_STREAMS_JSON"),
     ("sample_upload_minutes", "SAMPLE_UPLOAD_MINUTES"),
+    ("camera_keepalive", "CAMERA_KEEPALIVE"),
+    ("station_enabled", "STATION_ENABLED"),
+    ("probe_skip_programs", "PROBE_SKIP_PROGRAMS"),
 )
 
 # Welche davon Schalter sind und deshalb als true/false geschrieben werden.
 FERNSCHALTBAR_BOOLEAN = {
     "viewer_restart_enabled", "asset_sync_enabled", "probe_enabled",
+    "camera_keepalive", "station_enabled",
 }
 
 
@@ -111,6 +115,9 @@ def _merkmale_aus_einstellungen(config: dict[str, object]) -> dict[str, str]:
         elif schluessel == "camera_streams":
             import json
             ergebnis[env_name] = json.dumps(wert, ensure_ascii=True, separators=(",", ":"))
+        elif isinstance(wert, (list, tuple)):
+            # z. B. probe_skip_programs: ["Verkaufsprogramm", "Lichtschranke"]
+            ergebnis[env_name] = ",".join(str(item).strip() for item in wert if str(item).strip())
         else:
             ergebnis[env_name] = str(wert)
     return ergebnis
