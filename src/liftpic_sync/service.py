@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from .asset_sync import AssetSyncWorker
@@ -47,6 +47,8 @@ AUFTRAG_MAX_ALTER_MINUTEN = 30
 
 # Wie oft die Presentation (zweiter Bildschirm) nach neuen Fotos sieht.
 PRESENTATION_SECONDS = 2.0
+# Wie lange die Presentation ohne Kontakt zum Server weiterlaeuft (Lizenz).
+LICENSE_OFFLINE_DAYS = 7
 
 
 
@@ -254,6 +256,13 @@ class LiftpicService:
         self._praesentation: Praesentation | None = None
         self._praesentation_zuletzt = 0.0
         self._praesentation_fehler = 0.0
+        # Letzter erfolgreicher Abgleich mit dem Server - fuer die Lizenz:
+        # ohne Kontakt laeuft die Presentation nur LICENSE_OFFLINE_DAYS weiter.
+        try:
+            gemerkt = self.store.get_app_state("config_ok_at")
+        except Exception:
+            gemerkt = None
+        self._config_ok_at = float(gemerkt) if gemerkt else time.time()
 
     def _build_workers(self) -> None:
         self.ride_tracker = RideTracker(self.settings, self.store)
@@ -483,6 +492,11 @@ class LiftpicService:
         except Exception as exc:
             log.warning("config refresh failed: %s", exc)
             return
+        self._config_ok_at = now
+        try:
+            self.store.set_app_state("config_ok_at", str(now))
+        except Exception:
+            pass
 
         config = response.get("config")
         if not isinstance(config, dict):
@@ -956,6 +970,8 @@ class LiftpicService:
             "warnings_now": sum(1 for d in operational_status.devices if d.status == "degraded"),
             "pending_health_events": self.store.pending_health_event_count(),
             "agent_version": __version__,
+            # Presentation (2. Monitor) und Lizenz, fuer die Anzeige im CRM.
+            "presentation": self._presentation_status(),
             "coin_status": operational_status.coin_status,
             "terminal_status": operational_status.terminal_status,
             "printer_status": operational_status.printer_status,
@@ -1221,6 +1237,49 @@ class LiftpicService:
                 return streams[0]
         return self.settings
 
+    def _presentation_license(self, heute: date | None = None) -> tuple[bool, str]:
+        """Darf die Presentation Fotos zeigen? (ja/nein, Grund)
+
+        Grund: "" | "disabled" | "not_paired" | "expired" | "offline".
+        Gesteuert aus dem CRM (presentation_enabled, license_valid_until).
+        Ohne Kontakt zum Server laeuft sie noch LICENSE_OFFLINE_DAYS Tage weiter,
+        damit ein kurzer Internetausfall den Betrieb nicht stoppt - ein
+        dauerhaft getrennter PC aber eine abgelaufene Freischaltung nicht
+        umgehen kann.
+        """
+        if not self.settings.presentation_enabled:
+            return False, "disabled"
+        if not self.settings.device_token:
+            return False, "not_paired"
+        bis = self.settings.license_valid_until
+        if bis:
+            try:
+                ende = date.fromisoformat(bis[:10])
+            except ValueError:
+                ende = None
+            if ende is not None and (heute or date.today()) > ende:
+                return False, "expired"
+        if time.time() - self._config_ok_at > LICENSE_OFFLINE_DAYS * 86400:
+            return False, "offline"
+        return True, ""
+
+    def _presentation_status(self) -> dict | None:
+        """Fuer den Herzschlag: was die Presentation gerade macht (CRM-Anzeige)."""
+        if self.settings.presentation_dir is None:
+            return None
+        if not self.settings.presentation_enabled and self._praesentation is None:
+            return None
+        ok, grund = self._presentation_license()
+        return {
+            "enabled": self.settings.presentation_enabled,
+            "licensed": ok,
+            "reason": grund or None,
+            "valid_until": self.settings.license_valid_until or None,
+            "photos": self._praesentation.anzahl if self._praesentation else 0,
+            "qr_base": (self._praesentation.link_anfang if self._praesentation else None) or None,
+            "last_server_contact": datetime.fromtimestamp(self._config_ok_at).astimezone().isoformat(timespec="seconds"),
+        }
+
     def _presentation_if_due(self) -> None:
         """Den Ordner der Presentation aktuell halten. Wirft nie.
 
@@ -1242,13 +1301,17 @@ class LiftpicService:
             if self._praesentation is None or self._praesentation.ordner != ordner:
                 self._praesentation = Praesentation(ordner)
             quelle = self._presentation_source()
+            ok, grund = self._presentation_license()
             self._praesentation.schreibe(
                 raw_dir=quelle.raw_dir,
                 viewer_xml=quelle.viewer_settings_xml,
                 customer_code=quelle.customer_code,
                 positionen=quelle.file_code_positions,
                 park_slug=self.settings.park_slug,
-                lizenziert=bool(self.settings.presentation_enabled and self.settings.device_token),
+                lizenziert=ok,
+                grund=grund,
+                qr_basis=self.settings.presentation_qr_base,
+                gueltig_bis=self.settings.license_valid_until,
             )
         except Exception as exc:
             if jetzt - self._praesentation_fehler > 600:

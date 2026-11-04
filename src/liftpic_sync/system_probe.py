@@ -335,7 +335,7 @@ def probe_guest_screen(url_part: str) -> Probe:
     """
     key = "screen:guest"
     out = _run_ps(
-        "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe' or Name='chrome.exe'\" | "
+        "Get-CimInstance Win32_Process -Filter \"Name='msedge.exe' or Name='chrome.exe' or Name='LiftpicturesDisplay.exe'\" | "
         "ForEach-Object { $_.CommandLine }"
     )
     if out is None:
@@ -344,7 +344,9 @@ def probe_guest_screen(url_part: str) -> Probe:
     teil = url_part.lower()
     for zeile in out.splitlines():
         z = zeile.lower()
-        if "--kiosk" in z and teil in z:
+        # Ab 0.5.0 zeigt das eigene Programm die Presentation (display_app).
+        programm = "liftpicturesdisplay" in z and "--presentation" in z and "presentation" in teil
+        if programm or ("--kiosk" in z and teil in z):
             return Probe(key=key, name="Gäste-Bildschirm", kind="viewer", status="ok",
                          detail="Zeigt die Fotos mit QR-Code", tech="Edge-Kiosk")
     return Probe(key=key, name="Gäste-Bildschirm", kind="viewer", status="off",

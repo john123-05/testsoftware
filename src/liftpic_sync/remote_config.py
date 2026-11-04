@@ -85,6 +85,8 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("station_logo_url", "STATION_LOGO_URL"),
     ("guest_screen_url", "GUEST_SCREEN_URL"),
     ("presentation_enabled", "PRESENTATION_ENABLED"),
+    ("license_valid_until", "LICENSE_VALID_UNTIL"),
+    ("presentation_qr_base", "PRESENTATION_QR_BASE"),
     ("probe_skip_programs", "PROBE_SKIP_PROGRAMS"),
 )
 

@@ -140,3 +140,64 @@ def test_dienst_schreibt_presentation_nur_mit_freischaltung(tmp_path: Path):
 
 def test_seite_braucht_kein_internet():
     assert "http://" not in PAGE and "https://" not in PAGE
+
+
+# ------------------------------------------------------------------ Lizenz
+
+def _dienst(tmp_path, **extra):
+    import uuid
+    basis = tmp_path / uuid.uuid4().hex[:8]
+    basis.mkdir()
+    settings = replace(make_settings(basis), presentation_dir=tmp_path / "presentation",
+                       file_code_positions="3,4,5,6", **extra)
+    return LiftpicService(settings)
+
+
+def test_lizenz_aus_dem_crm(tmp_path: Path):
+    from datetime import date
+    assert _dienst(tmp_path, presentation_enabled=False)._presentation_license() == (False, "disabled")
+    an = _dienst(tmp_path, presentation_enabled=True, license_valid_until="2026-11-30")
+    assert an._presentation_license(heute=date(2026, 11, 30)) == (True, "")
+    assert an._presentation_license(heute=date(2026, 12, 1)) == (False, "expired")
+    assert _dienst(tmp_path, presentation_enabled=True, device_token="")._presentation_license() == (False, "not_paired")
+
+
+def test_lizenz_endet_nach_sieben_tagen_ohne_serverkontakt(tmp_path: Path):
+    import time
+    svc = _dienst(tmp_path, presentation_enabled=True)
+    svc._config_ok_at = time.time() - 6 * 86400
+    assert svc._presentation_license()[0] is True
+    svc._config_ok_at = time.time() - 8 * 86400
+    assert svc._presentation_license() == (False, "offline")
+
+
+def test_abgelaufene_lizenz_zeigt_hinweis_statt_fotos(tmp_path: Path):
+    svc = _dienst(tmp_path, presentation_enabled=True, license_valid_until="2020-01-01")
+    _fotos(svc.settings.raw_dir, ["I00057.JPG"])
+    svc._presentation_if_due()
+    stand = _stand(tmp_path / "presentation")
+    assert stand["licensed"] is False and stand["reason"] == "expired" and stand["photos"] == []
+    status = svc._presentation_status()
+    assert status["licensed"] is False and status["reason"] == "expired"
+
+
+def test_qr_link_aus_dem_crm_ueberschreibt_die_settings(tmp_path: Path):
+    svc = _dienst(tmp_path, presentation_enabled=True,
+                  presentation_qr_base="https://liftpictures-fotos.de/anderer-park/claim?code=")
+    _fotos(svc.settings.raw_dir, ["I00057.JPG"])
+    svc._presentation_if_due()
+    url = _stand(tmp_path / "presentation")["photos"][0]["url"]
+    assert url.startswith("https://liftpictures-fotos.de/anderer-park/claim?code=")
+
+
+def test_fremder_qr_link_wird_ignoriert():
+    assert claim_basis(None, "kalahari-virginia", "https://evil.example/claim?code=")[0] \
+        == "https://liftpictures-fotos.de/kalahari-virginia/claim?code="
+
+
+def test_lizenzfelder_sind_fernschaltbar():
+    env = config_to_env({"park_slug": "x", "park_id": "p", "machine_id": "m", "settings": {
+        "license_valid_until": "2026-12-31",
+        "presentation_qr_base": "https://liftpictures-fotos.de/x/claim?code="}}, "token")
+    assert env["LICENSE_VALID_UNTIL"] == "2026-12-31"
+    assert env["PRESENTATION_QR_BASE"] == "https://liftpictures-fotos.de/x/claim?code="

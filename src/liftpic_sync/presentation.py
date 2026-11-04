@@ -92,10 +92,17 @@ def stil(viewer: dict | None) -> dict:
     }
 
 
-def claim_basis(viewer: dict | None, park_slug: str) -> tuple[str, str]:
+def gueltige_qr_basis(text: str) -> bool:
+    """Nur Liftpictures-Claim-Seiten - wie im CRM geprueft."""
+    return bool(re.fullmatch(r"https://liftpictures-fotos(-tarzans)?\.de/[a-z0-9/_-]*claim\?code=", text or "", re.I))
+
+
+def claim_basis(viewer: dict | None, park_slug: str, override: str = "") -> tuple[str, str]:
     """Link-Anfang und -Ende. Wie in der Einzelansicht des Verkaufsprogramms
     aus QrCodeBeginningString/QrCodeEndingString - aber nur, wenn das ein
     echter Link ist. Die alte jpeg4web-Adresse ohne https fuehrte ins Leere."""
+    if override and gueltige_qr_basis(override.strip()):
+        return override.strip(), ""
     v = viewer or {}
     anfang = (v.get("QrCodeBeginningString") or "").strip()
     ende = (v.get("QrCodeEndingString") or "").strip()
@@ -152,6 +159,8 @@ class Praesentation:
         self._fotos: dict[tuple[str, float], dict] = {}
         self._signatur: str | None = None
         self._logo: tuple[str, float, int] | None = None
+        self.anzahl = 0
+        self.link_anfang = ""
 
     def _wasserzeichen(self, quelle: str | None) -> str | None:
         if not quelle:
@@ -171,6 +180,7 @@ class Praesentation:
 
     def schreibe(self, *, raw_dir: Path, viewer_xml: Path | None, customer_code: str,
                  positionen: str, park_slug: str, lizenziert: bool,
+                 grund: str = "", qr_basis: str = "", gueltig_bis: str = "",
                  jetzt: float | None = None) -> bool:
         """Gibt zurueck, ob sich etwas geaendert hat."""
         jetzt = time.time() if jetzt is None else jetzt
@@ -187,7 +197,7 @@ class Praesentation:
         viewer = lies_alle(viewer_xml)
         s = stil(viewer)
         s["preview_logo"] = self._wasserzeichen((viewer or {}).get("SplitPreviewLogo"))
-        anfang, ende = claim_basis(viewer, park_slug)
+        anfang, ende = claim_basis(viewer, park_slug, qr_basis)
 
         fotos: list[dict] = []
         if lizenziert:
@@ -216,7 +226,10 @@ class Praesentation:
                 aktuell = {f["key"] for f in fotos}
                 self._fotos = {k: v for k, v in self._fotos.items() if v["key"] in aktuell}
 
-        stand = {"page_rev": PAGE_REV, "licensed": lizenziert, "style": s, "photos": fotos}
+        self.anzahl = len(fotos)
+        self.link_anfang = anfang
+        stand = {"page_rev": PAGE_REV, "licensed": lizenziert, "reason": grund,
+                 "valid_until": gueltig_bis or None, "style": s, "photos": fotos}
         signatur = json.dumps(stand, sort_keys=True)
         if signatur == self._signatur and (self.ordner / "photos.js").exists():
             return False

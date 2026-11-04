@@ -570,6 +570,8 @@ footer span+span::before{content:"\00b7";margin:0 8px;color:var(--line-strong)}
   // Schliessen: ein per Verknuepfung geoeffnetes App-Fenster darf sich selbst
   // schliessen. Klappt es nicht, sagt die Seite, wie es geht.
   function hide(){
+    // Im Programm LiftpicturesDisplay.exe schliesst diese Nachricht das Fenster.
+    try{if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage("close")}catch(e){}
     try{window.close()}catch(e){}
     setTimeout(function(){var t=document.getElementById("toast");t.hidden=false;setTimeout(function(){t.hidden=true},8000)},300);
   }

@@ -97,7 +97,10 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg,#3977BD);curs
     if(!s.licensed){
       grid.textContent="";cells={};
       notice.hidden=false;
-      notice.textContent="This presentation is not activated for this PC. Please contact Liftpictures support.";
+      var why={expired:"The licence for this presentation has expired.",
+               offline:"This PC has had no connection to Liftpictures for more than 7 days. Please connect it to the internet.",
+               not_paired:"This PC is not connected to Liftpictures yet."}[s.reason]||"This presentation is not activated for this PC.";
+      notice.textContent=why+" Please contact Liftpictures support: support@liftpictures.com";
       return;
     }
     notice.hidden=true;

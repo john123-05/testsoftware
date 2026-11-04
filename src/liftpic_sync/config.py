@@ -171,6 +171,10 @@ class Settings:
     # (Lizenz) pro PC aus dem Dashboard; ohne sie zeigt die Seite einen Hinweis.
     presentation_enabled: bool = False
     presentation_dir: Path | None = None
+    # Lizenz aus dem CRM: leer = unbegrenzt, sonst "JJJJ-MM-TT" (letzter gueltiger Tag).
+    license_valid_until: str = ""
+    # Anderer Link-Anfang fuer die QR-Codes (sonst der aus der Settings.xml).
+    presentation_qr_base: str = ""
     # Payment terminal, for a plain reachability check (no protocol talk).
     terminal_host: str = ""
     terminal_port: int = 22000
@@ -345,6 +349,8 @@ class Settings:
             station_logo_url=_get(values, "STATION_LOGO_URL", "").strip(),
             guest_screen_url=_get(values, "GUEST_SCREEN_URL", "").strip(),
             presentation_enabled=parse_bool(_get(values, "PRESENTATION_ENABLED", "false"), False),
+            license_valid_until=_get(values, "LICENSE_VALID_UNTIL", "").strip(),
+            presentation_qr_base=_get(values, "PRESENTATION_QR_BASE", "").strip(),
             presentation_dir=(
                 Path(pres_raw) if (pres_raw := _get(values, "PRESENTATION_DIR", "").strip())
                 else app_dir.parent / "presentation"

@@ -200,3 +200,10 @@ def test_station_legt_ein_windows_symbol_ab(tmp_path: Path):
     ico = (ordner / "station.ico").read_bytes()
     assert ico[:4] == b"\x00\x00\x01\x00"  # ICO-Kopf
     assert b"\x89PNG" in ico
+
+
+def test_gaeste_bildschirm_erkennt_das_eigene_programm(monkeypatch):
+    import liftpic_sync.system_probe as sp
+    zeile = '"C:\\liftpic\\display\\LiftpicturesDisplay.exe" --presentation\n'
+    monkeypatch.setattr(sp, "_run_ps", lambda script, timeout=20.0: zeile)
+    assert sp.probe_guest_screen("liftpic/presentation/index.html").status == "ok"

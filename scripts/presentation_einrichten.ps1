@@ -77,9 +77,10 @@ $lnk.Description = "Liftpictures guest screen (second monitor)"
 $lnk.Save()
 Write-Host "Autostart: $pfad -> $ziel"
 
-# Bisheriges Fenster auf dem zweiten Monitor schliessen (nur das mit diesem Profil).
-Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" -ErrorAction SilentlyContinue |
-  Where-Object { $_.CommandLine -like "*screen-profile*" } |
+# Bisheriges Fenster auf dem zweiten Monitor schliessen (Edge mit diesem Profil
+# oder das Programm Liftpictures Display mit --presentation).
+Get-CimInstance Win32_Process -Filter "Name='msedge.exe' or Name='LiftpicturesDisplay.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like "*screen-profile*" -or $_.CommandLine -like "*--presentation*" } |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 2
 
