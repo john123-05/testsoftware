@@ -87,6 +87,7 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("presentation_enabled", "PRESENTATION_ENABLED"),
     ("license_valid_until", "LICENSE_VALID_UNTIL"),
     ("presentation_qr_base", "PRESENTATION_QR_BASE"),
+    ("presentation_design", "PRESENTATION_DESIGN_JSON"),
     ("probe_skip_programs", "PROBE_SKIP_PROGRAMS"),
 )
 
@@ -116,7 +117,7 @@ def _merkmale_aus_einstellungen(config: dict[str, object]) -> dict[str, str]:
             continue
         if schluessel in FERNSCHALTBAR_BOOLEAN:
             ergebnis[env_name] = _bool_env(wert)
-        elif schluessel == "camera_streams":
+        elif schluessel in ("camera_streams", "presentation_design"):
             import json
             ergebnis[env_name] = json.dumps(wert, ensure_ascii=True, separators=(",", ":"))
         elif isinstance(wert, (list, tuple)):

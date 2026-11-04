@@ -81,7 +81,8 @@ def test_schreibt_raster_mit_neuestem_foto_zuerst_und_echtem_link(tmp_path: Path
     assert erstes["time"] == "09:54"
     assert erstes["qr"].startswith("<svg") and "path" in erstes["qr"]
     assert (ziel / "preview-logo.png").read_bytes() == b"\x89PNG"
-    assert stand["style"]["preview_logo"].startswith("preview-logo.png")
+    assert stand["style"]["viewer_logo"].startswith("preview-logo.png")
+    assert stand["style"]["preset"] == "classic" and stand["style"]["background"] == "#3977BD"
     assert "__PAGE_REV__" not in (ziel / "index.html").read_text(encoding="utf-8")
 
     # Unveraendert -> nichts schreiben.
@@ -201,3 +202,37 @@ def test_lizenzfelder_sind_fernschaltbar():
         "presentation_qr_base": "https://liftpictures-fotos.de/x/claim?code="}}, "token")
     assert env["LICENSE_VALID_UNTIL"] == "2026-12-31"
     assert env["PRESENTATION_QR_BASE"] == "https://liftpictures-fotos.de/x/claim?code="
+
+
+# -------------------------------------------------------------- Gestaltung
+
+def test_gestaltung_vorlage_und_eigene_werte():
+    from liftpic_sync.presentation_design import gestaltung
+    basis = stil(None)
+    g = gestaltung(basis, {"preset": "signature", "radius": 99, "background": "#123456",
+                           "layout": "spotlight", "ticker_messages": ["A", "", 5, "B"], "unbekannt": 1,
+                           "time_format": "12h", "logo_url": "http://unsicher"})
+    assert g["preset"] == "signature" and g["header"] is True       # aus der Vorlage
+    assert g["radius"] == 48                                          # auf die Grenze gekappt
+    assert g["background"] == "#123456" and g["layout"] == "spotlight"
+    assert g["ticker_messages"] == ["A", "B"]                         # nur Texte
+    assert g["logo_url"] == "" and "unbekannt" not in g              # nur https, nur bekannte Felder
+    assert gestaltung(basis, {"layout": "kaputt"})["layout"] == "grid"
+
+
+def test_design_kommt_per_fernkonfiguration_als_json():
+    env = config_to_env({"park_slug": "x", "park_id": "p", "machine_id": "m",
+                         "settings": {"presentation_design": {"preset": "signature", "background": "#002858"}}}, "t")
+    assert json.loads(env["PRESENTATION_DESIGN_JSON"]) == {"preset": "signature", "background": "#002858"}
+
+
+def test_karussell_holt_mehr_fotos(tmp_path: Path):
+    fotos = tmp_path / "fotos"
+    _fotos(fotos, [f"I000{n}.JPG" for n in range(10, 30)])
+    ziel = tmp_path / "presentation"
+    Praesentation(ziel).schreibe(raw_dir=fotos, viewer_xml=None, customer_code="4761", positionen="3,4,5,6",
+                                 park_slug="kalahari-virginia", lizenziert=True,
+                                 design={"layout": "carousel", "max_photos": 12},
+                                 jetzt=datetime(2026, 11, 4, 12, 0).timestamp())
+    stand = _stand(ziel)
+    assert len(stand["photos"]) == 12 and stand["photos"][0]["ts"] > stand["photos"][1]["ts"]

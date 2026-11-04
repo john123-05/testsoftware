@@ -1312,6 +1312,8 @@ class LiftpicService:
                 grund=grund,
                 qr_basis=self.settings.presentation_qr_base,
                 gueltig_bis=self.settings.license_valid_until,
+                design=self.settings.presentation_design_json,
+                logo_url=self.settings.station_logo_url,
             )
         except Exception as exc:
             if jetzt - self._praesentation_fehler > 600:

@@ -175,6 +175,8 @@ class Settings:
     license_valid_until: str = ""
     # Anderer Link-Anfang fuer die QR-Codes (sonst der aus der Settings.xml).
     presentation_qr_base: str = ""
+    # Gestaltung der Presentation aus dem CRM (JSON, siehe presentation_design.py).
+    presentation_design_json: str = ""
     # Payment terminal, for a plain reachability check (no protocol talk).
     terminal_host: str = ""
     terminal_port: int = 22000
@@ -351,6 +353,7 @@ class Settings:
             presentation_enabled=parse_bool(_get(values, "PRESENTATION_ENABLED", "false"), False),
             license_valid_until=_get(values, "LICENSE_VALID_UNTIL", "").strip(),
             presentation_qr_base=_get(values, "PRESENTATION_QR_BASE", "").strip(),
+            presentation_design_json=_get(values, "PRESENTATION_DESIGN_JSON", "").strip(),
             presentation_dir=(
                 Path(pres_raw) if (pres_raw := _get(values, "PRESENTATION_DIR", "").strip())
                 else app_dir.parent / "presentation"

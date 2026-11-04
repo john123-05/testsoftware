@@ -33,6 +33,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .filename_codec import build_legacy_filename, viewer_file_code
+from .presentation_design import fotos_benoetigt, gestaltung, lies_design
 from .presentation_page import PAGE
 from .qr import qr_svg
 from .viewer_xml import lies_alle
@@ -162,6 +163,17 @@ class Praesentation:
         self.anzahl = 0
         self.link_anfang = ""
 
+    def _logo_datei(self, url: str, oeffnen=None) -> str | None:
+        """Logo (z. B. Kalahari) einmal laden und lokal ablegen - wie bei der Station."""
+        from .station import _lade_parklogo
+        if not _lade_parklogo(self.ordner, url or "", oeffnen):
+            return None
+        try:
+            stand = int((self.ordner / "park-logo").stat().st_mtime)
+        except OSError:
+            return None
+        return f"park-logo?v={stand}"
+
     def _wasserzeichen(self, quelle: str | None) -> str | None:
         if not quelle:
             return None
@@ -181,6 +193,7 @@ class Praesentation:
     def schreibe(self, *, raw_dir: Path, viewer_xml: Path | None, customer_code: str,
                  positionen: str, park_slug: str, lizenziert: bool,
                  grund: str = "", qr_basis: str = "", gueltig_bis: str = "",
+                 design: str | dict | None = None, logo_url: str = "", oeffnen=None,
                  jetzt: float | None = None) -> bool:
         """Gibt zurueck, ob sich etwas geaendert hat."""
         jetzt = time.time() if jetzt is None else jetzt
@@ -195,13 +208,15 @@ class Praesentation:
             _atomar(ziel, seite)
 
         viewer = lies_alle(viewer_xml)
-        s = stil(viewer)
-        s["preview_logo"] = self._wasserzeichen((viewer or {}).get("SplitPreviewLogo"))
+        s = gestaltung(stil(viewer), lies_design(design))
+        s["viewer_logo"] = self._wasserzeichen((viewer or {}).get("SplitPreviewLogo"))
+        s["logo"] = self._logo_datei(s.get("logo_url") or logo_url, oeffnen)
+        s.pop("logo_url", None)
         anfang, ende = claim_basis(viewer, park_slug, qr_basis)
 
         fotos: list[dict] = []
         if lizenziert:
-            for bild, mtime in neueste_fotos(raw_dir, s["columns"] * s["rows"], jetzt):
+            for bild, mtime in neueste_fotos(raw_dir, fotos_benoetigt(s), jetzt):
                 schluessel = (str(bild), mtime)
                 eintrag = self._fotos.get(schluessel)
                 if eintrag is None:
@@ -216,6 +231,7 @@ class Praesentation:
                         "src": bild.as_uri(),
                         "number": nummer,
                         "time": datetime.fromtimestamp(mtime).strftime("%H:%M"),
+                        "ts": int(mtime),
                         "code": code,
                         "url": url,
                         "qr": qr_svg(url, border=2),
