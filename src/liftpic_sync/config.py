@@ -156,10 +156,6 @@ class Settings:
     # crashed program writes nothing at all - its last log line still looks
     # healthy - so "is it running?" has to be asked, not inferred.
     probe_enabled: bool = True
-    # Kamera-Waechter: laeuft die Kamera-Software (camera_exe) nicht, startet der
-    # Agent sie selbst wieder. Fuer Anlagen wie Kalahari, wo EOS Utility die
-    # Fotos von der Kamera holt und nach einem Absturz sonst stundenlang fehlt.
-    camera_keepalive: bool = False
     # "Liftpictures Station": lokale Statusseite auf dem Automaten-Bildschirm,
     # funktioniert ohne Internet (file://, liest status.js).
     station_enabled: bool = True
@@ -334,7 +330,6 @@ class Settings:
             viewer_settings_xml=Path(viewer_settings_raw) if viewer_settings_raw else None,
             viewer_recipe_enabled=parse_bool(_get(values, "VIEWER_RECIPE_ENABLED", "false"), False),
             probe_enabled=parse_bool(_get(values, "PROBE_ENABLED", "true"), True),
-            camera_keepalive=parse_bool(_get(values, "CAMERA_KEEPALIVE", "false"), False),
             station_enabled=parse_bool(_get(values, "STATION_ENABLED", "true"), True),
             station_dir=(
                 Path(station_raw) if (station_raw := _get(values, "STATION_DIR", "").strip())

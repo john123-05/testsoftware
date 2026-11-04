@@ -167,7 +167,7 @@ footer span+span::before{content:"·";margin:0 10px;color:var(--line2)}
     {k:"proc:AidaTest", n:"Light barrier", p:"Detects riders and triggers the camera.",
      todo:["Make sure nothing blocks the light barrier sensors.","Check the light barrier cable on the PC.","Restart the PC."]},
     {k:"proc:3gerTis_v70", n:"Camera software", p:"Receives every photo from the camera.", camera:true,
-     todo:["Check that the camera is switched on and shows no error on its display.","Check the USB cable at the camera and at the PC.","Restart the PC."]},
+     todo:["Start the camera software again (EOS Utility icon on the desktop).","Check that the camera is switched on and shows no error on its display.","Check the USB cable at the camera and at the PC.","If it still does not work, restart the PC."]},
     {k:"tcp:", n:"Card terminal", p:"Accepts card payments.",
      todo:["Check that the card terminal is switched on.","Check its network cable.","Switch the terminal off and on again."]},
     {k:"printer", n:"Photo printer", p:"Prints purchased photos.",
@@ -253,7 +253,7 @@ footer span+span::before{content:"·";margin:0 10px;color:var(--line2)}
     document.getElementById("fVersion").textContent="Liftpictures Sync "+(data.version||"");
     document.getElementById("fUpdated").textContent="Last report "+hm(data.updated_at)+" ("+ago(data.updated_at)+")";
 
-    var down=[], warn=[], ka=data.keepalive||{};
+    var down=[], warn=[];
     (data.probes||[]).forEach(function(p){
       var meta=info(p.key||""), lv=level(p);
       if(meta.sys){
@@ -277,10 +277,7 @@ footer span+span::before{content:"·";margin:0 10px;color:var(--line2)}
       if(!bad && meta.p) t.appendChild(el("div","purpose",meta.p));
       if(bad){
         var box=el("div","todo"), steps=meta.todo.slice();
-        if(meta.camera && ka.enabled){
-          box.appendChild(el("b",null,ka.last_error?"Automatic restart failed":"Restarting automatically"));
-          steps=["Wait two minutes. The camera software is started again by itself."].concat(steps);
-        } else box.appendChild(el("b",null,"What to do"));
+        box.appendChild(el("b",null,"What to do"));
         var ol=el("ol"); steps.forEach(function(x){ol.appendChild(el("li",null,x))}); box.appendChild(ol);
         t.appendChild(box);
       }
@@ -313,14 +310,8 @@ footer span+span::before{content:"·";margin:0 10px;color:var(--line2)}
 
     // Zuletzt
     var recent=document.getElementById("recent"); recent.textContent="";
-    if(ka.last_start && (Date.now()/1000-ka.last_start)<86400){
-      var r=el("div","row"); r.appendChild(el("span",null,"Camera software was restarted automatically")); r.appendChild(el("time","num",hm(ka.last_start))); recent.appendChild(r);
-    }
     if(!data.online && data.offline_since){
       var r2=el("div","row"); r2.appendChild(el("span",null,"Connection lost")); r2.appendChild(el("time","num",hm(data.offline_since))); recent.appendChild(r2);
-    }
-    if(ka.enabled){
-      var r3=el("div","row"); r3.appendChild(el("span",null,"Camera watchdog active"+(ka.program?" ("+ka.program+")":""))); r3.appendChild(el("time",null,"on")); recent.appendChild(r3);
     }
     if(!recent.childNodes.length) recent.appendChild(el("div","empty","Nothing to report."));
 

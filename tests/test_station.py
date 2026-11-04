@@ -1,16 +1,15 @@
-"""Kamera-Waechter (EOS Utility, Kalahari) und die lokale Liftpictures Station."""
+"""EOS-Utility-Erkennung (Kalahari) und die lokale Liftpictures Station."""
 from dataclasses import replace
 import json
 from pathlib import Path
 
-from liftpic_sync import service as service_mod
 from liftpic_sync.camera_settings import kamera_status
 from liftpic_sync.remote_config import config_to_env
 from liftpic_sync.service import LiftpicService
 from liftpic_sync.station import schreibe_station
 from liftpic_sync.station_page import PAGE
 from liftpic_sync.system_probe import DEFAULT_PROCESSES, PROGRAM_TECH
-from liftpic_sync.viewer_control import RestartOutcome, kamera_tech
+from liftpic_sync.viewer_control import kamera_tech
 
 from test_service import FakeStatusClient, make_settings
 
@@ -19,9 +18,7 @@ EOS = Path(r"C:\Program Files (x86)\Canon\EOS Utility\EU3\EOS Utility 3.exe")
 
 def _service(tmp_path: Path, **extra) -> LiftpicService:
     settings = replace(make_settings(tmp_path), **extra)
-    svc = LiftpicService(settings)
-    svc._keepalive_next = 0.0  # Schonfrist im Test ueberspringen
-    return svc
+    return LiftpicService(settings)
 
 
 # ---------------------------------------------------------------- Erkennung
@@ -48,83 +45,32 @@ def test_eos_utility_hat_keine_kameraseite(tmp_path: Path):
 
 # --------------------------------------------------------------- Fernschalter
 
-def test_waechter_station_und_ausblenden_sind_fernschaltbar():
+def test_station_und_ausblenden_sind_fernschaltbar():
     env = config_to_env({
         "park_slug": "kalahari-virginia", "park_id": "p", "machine_id": "m",
         "settings": {
-            "camera_keepalive": True,
             "station_enabled": False,
             "probe_skip_programs": ["Verkaufsprogramm", "Lichtschranke"],
         },
     }, "token")
-    assert env["CAMERA_KEEPALIVE"] == "true"
     assert env["STATION_ENABLED"] == "false"
     assert env["PROBE_SKIP_PROGRAMS"] == "Verkaufsprogramm,Lichtschranke"
 
 
-def test_ohne_eintrag_bleibt_der_waechter_unangetastet():
+def test_ohne_eintrag_bleibt_alles_unangetastet():
     env = config_to_env({"park_slug": "x", "park_id": "p", "machine_id": "m"}, "token")
-    assert "CAMERA_KEEPALIVE" not in env
+    assert "STATION_ENABLED" not in env
     assert "PROBE_SKIP_PROGRAMS" not in env
 
 
-# ----------------------------------------------------------------- Waechter
-
-def test_waechter_startet_kamera_software_die_nicht_laeuft(tmp_path, monkeypatch):
-    svc = _service(tmp_path, camera_exe=EOS, camera_keepalive=True)
-    gestartet = []
-    monkeypatch.setattr(service_mod, "_laufende_pids", lambda exe: [])
-    monkeypatch.setattr(service_mod, "starte_falls_aus",
-                        lambda exe: gestartet.append(exe) or RestartOutcome(True, "gestartet"))
-
-    svc._camera_keepalive_if_due()
-
-    assert gestartet == [EOS]
-    assert svc._keepalive_last_start is not None
-    notizen = svc.store.undelivered_health_events()
-    assert any("neu gestartet" in n["summary"] for n in notizen)
-
-
-def test_waechter_laesst_laufende_software_in_ruhe(tmp_path, monkeypatch):
-    svc = _service(tmp_path, camera_exe=EOS, camera_keepalive=True)
-    monkeypatch.setattr(service_mod, "_laufende_pids", lambda exe: [4711])
-    monkeypatch.setattr(service_mod, "starte_falls_aus",
-                        lambda exe: (_ for _ in ()).throw(AssertionError("darf nicht starten")))
-    svc._camera_keepalive_if_due()
-    assert svc._keepalive_last_start is None
-
-
-def test_waechter_ist_ohne_schalter_aus(tmp_path, monkeypatch):
-    svc = _service(tmp_path, camera_exe=EOS, camera_keepalive=False)
-    monkeypatch.setattr(service_mod, "_laufende_pids",
-                        lambda exe: (_ for _ in ()).throw(AssertionError("nicht pruefen")))
-    svc._camera_keepalive_if_due()
-
-
-def test_waechter_wartet_zwischen_versuchen_und_meldet_dauerfehler_einmal(tmp_path, monkeypatch):
-    svc = _service(tmp_path, camera_exe=EOS, camera_keepalive=True)
-    versuche = []
-    monkeypatch.setattr(service_mod, "_laufende_pids", lambda exe: [])
-    monkeypatch.setattr(service_mod, "starte_falls_aus",
-                        lambda exe: versuche.append(1) or RestartOutcome(False, "niemand angemeldet"))
-
-    svc._camera_keepalive_if_due()
-    svc._camera_keepalive_if_due()  # sofort danach: Pause, kein zweiter Versuch
-    assert len(versuche) == 1
-
-    for _ in range(4):
-        svc._keepalive_next = 0.0
-        svc._camera_keepalive_if_due()
-    fehler = [n for n in svc.store.undelivered_health_events() if n["severity"] == "error"]
-    assert len(fehler) == 1
-
-
-def test_schonfrist_nach_dem_start(tmp_path, monkeypatch):
-    settings = replace(make_settings(tmp_path), camera_exe=EOS, camera_keepalive=True)
-    svc = LiftpicService(settings)
-    monkeypatch.setattr(service_mod, "_laufende_pids",
-                        lambda exe: (_ for _ in ()).throw(AssertionError("noch in der Schonfrist")))
-    svc._camera_keepalive_if_due()
+def test_agent_startet_die_kamera_nie_selbst():
+    # Ausdruecklich gewollt (John, 04.11.2026): wer die Kamera-Software
+    # ausschaltet, soll sie nicht von selbst wiederkommen sehen.
+    import liftpic_sync.service as svc
+    assert not hasattr(svc.LiftpicService, "_camera_keepalive_if_due")
+    env = config_to_env({"park_slug": "x", "park_id": "p", "machine_id": "m",
+                         "settings": {"camera_keepalive": True}}, "token")
+    assert "CAMERA_KEEPALIVE" not in env
 
 
 # ------------------------------------------------------------------ Station

@@ -29,7 +29,7 @@ from .uploader import UploadWorker
 from .viewer_control import (
     _neueste_datei,
     _running_pids as _laufende_pids,
-    angemeldeter_benutzer, kamera_tech, starte_falls_aus, find_program, in_night_window, laeuft_ohne_bildschirm, restart_program,
+    angemeldeter_benutzer, find_program, in_night_window, laeuft_ohne_bildschirm, restart_program,
     restartable_programs, stop_program, trigger_test_photo,
 )
 from . import __version__
@@ -44,10 +44,6 @@ log = logging.getLogger(__name__)
 # einem Neustart ueberrascht wird, den er laengst vergessen hat.
 AUFTRAG_MAX_ALTER_MINUTEN = 30
 
-# Kamera-Waechter: Schonfrist nach Agent-Start, Pruefabstand, Pause nach einem Startversuch.
-KEEPALIVE_GRACE_SECONDS = 180
-KEEPALIVE_CHECK_SECONDS = 45
-KEEPALIVE_AFTER_START_SECONDS = 240
 
 
 # Wie oft sich der Automat hoechstens neu koppelt, bevor er aufgibt und es
@@ -250,13 +246,6 @@ class LiftpicService:
         # heartbeat pace and reused by the loop in between.
         self._probe_cache: list[dict] | None = None
         self._last_probe = 0.0
-        # Kamera-Waechter (CAMERA_KEEPALIVE). Kurze Schonfrist nach dem Start
-        # des Agenten: nach einem PC-Neustart startet die Kamera-Software ueber
-        # den Autostart selbst, sie soll nicht doppelt hochgeholt werden.
-        self._keepalive_next = time.time() + KEEPALIVE_GRACE_SECONDS
-        self._keepalive_failures = 0
-        self._keepalive_last_start: float | None = None
-        self._keepalive_last_error: str | None = None
 
     def _build_workers(self) -> None:
         self.ride_tracker = RideTracker(self.settings, self.store)
@@ -836,7 +825,6 @@ class LiftpicService:
             ride_counts,
         )
         self._heartbeat_if_due(counts)
-        self._camera_keepalive_if_due()
         return {
             "rides_seen": ride_result.seen,
             "rides_new": ride_result.new,
@@ -1212,64 +1200,6 @@ class LiftpicService:
         if len(self._reported_faults) > 500:
             self._reported_faults.clear()
 
-    def _camera_keepalive_if_due(self) -> None:
-        """Kamera-Software wieder starten, wenn sie nicht laeuft.
-
-        Kalahari (11/2026): EOS Utility holt die Fotos von der Canon. Stuerzt es
-        ab oder schliesst jemand das Fenster, entsteht kein einziges Foto mehr,
-        bis jemand am PC nachsieht. Der Waechter startet es selbst - aber nur
-        starten, nie ein laufendes Programm anhalten, und mit Pause zwischen
-        den Versuchen, damit ein kaputtes Programm nicht im Sekundentakt
-        hochgeholt wird.
-        """
-        exe = self.settings.camera_exe
-        if not self.settings.camera_keepalive or exe is None:
-            return
-        now = time.time()
-        if now < self._keepalive_next:
-            return
-        self._keepalive_next = now + KEEPALIVE_CHECK_SECONDS
-
-        try:
-            if _laufende_pids(exe):
-                if self._keepalive_failures:
-                    self._keepalive_failures = 0
-                    self._keepalive_last_error = None
-                return
-        except Exception as exc:
-            log.warning("camera keepalive: check failed: %s", exc)
-            return
-
-        outcome = starte_falls_aus(exe)
-        if outcome.performed:
-            log.warning("camera keepalive: %s was not running, started it", exe.name)
-            self._keepalive_failures = 0
-            self._keepalive_last_error = None
-            self._keepalive_last_start = now
-            self._probe_cache = None  # beim naechsten Herzschlag frisch messen
-            self.store.record_health_event(
-                kind="camera",
-                severity="warning",
-                summary="Kamera-Software war aus und wurde neu gestartet",
-                detail=f"{kamera_tech(exe)} ({exe}) lief nicht, der Agent hat es wieder gestartet.",
-            )
-            # Dem Programm Zeit zum Hochfahren lassen, bevor wieder geprueft wird.
-            self._keepalive_next = now + KEEPALIVE_AFTER_START_SECONDS
-            return
-
-        self._keepalive_failures += 1
-        self._keepalive_last_error = outcome.reason
-        log.error("camera keepalive: start failed (%s): %s", self._keepalive_failures, outcome.reason)
-        if self._keepalive_failures == 3:
-            # Einmal melden, nicht bei jedem Versuch.
-            self.store.record_health_event(
-                kind="camera",
-                severity="error",
-                summary="Kamera-Software laesst sich nicht starten",
-                detail=outcome.reason[:2000],
-            )
-        self._keepalive_next = now + KEEPALIVE_AFTER_START_SECONDS
-
     def _write_station(self, payload: dict[str, object]) -> None:
         """Den Stand fuer die lokale Statusseite schreiben. Wirft nie."""
         if not self.settings.station_enabled or self.settings.station_dir is None:
@@ -1291,12 +1221,6 @@ class LiftpicService:
                 "disk_free_mb": payload.get("disk_free_mb"),
                 "probes": payload.get("probes") or [],
                 "skip": list(self.settings.probe_skip_programs),
-                "keepalive": {
-                    "enabled": bool(self.settings.camera_keepalive and self.settings.camera_exe),
-                    "program": kamera_tech(self.settings.camera_exe) if self.settings.camera_exe else None,
-                    "last_start": self._keepalive_last_start,
-                    "last_error": self._keepalive_last_error,
-                },
             })
         except Exception as exc:
             log.warning("station status could not be written: %s", exc)

@@ -81,7 +81,6 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("viewer_profile", "VIEWER_PROFILE"),
     ("camera_streams", "CAMERA_STREAMS_JSON"),
     ("sample_upload_minutes", "SAMPLE_UPLOAD_MINUTES"),
-    ("camera_keepalive", "CAMERA_KEEPALIVE"),
     ("station_enabled", "STATION_ENABLED"),
     ("probe_skip_programs", "PROBE_SKIP_PROGRAMS"),
 )
@@ -89,7 +88,7 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
 # Welche davon Schalter sind und deshalb als true/false geschrieben werden.
 FERNSCHALTBAR_BOOLEAN = {
     "viewer_restart_enabled", "asset_sync_enabled", "probe_enabled",
-    "camera_keepalive", "station_enabled",
+    "station_enabled",
 }
 
 
