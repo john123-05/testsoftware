@@ -19,6 +19,7 @@ Geoeffnet wird sie per Verknuepfung (scripts/station_einrichten.ps1):
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -101,12 +102,18 @@ def _lade_parklogo(ordner: Path, url: str, oeffnen=None) -> bool:
         return vorhanden
 
 
+PAGE_REV = hashlib.sha256(PAGE.encode("utf-8")).hexdigest()[:12]
+
+
 def schreibe_station(ordner: Path, stand: dict, logo_url: str = "", oeffnen=None) -> None:
     ordner.mkdir(parents=True, exist_ok=True)
-    _schreibe_falls_anders(ordner / "index.html", PAGE)
+    # Die Seite zuerst, dann status.js: wer eine frische status.js sieht, hat
+    # auch die passende Seite.
+    _schreibe_falls_anders(ordner / "index.html", PAGE.replace("__PAGE_REV__", PAGE_REV))
     _schreibe_falls_anders(ordner / "liftpic-logo.png", base64.b64decode(LIFTPIC_LOGO_PNG_B64))
 
     stand = dict(stand)
+    stand["page_rev"] = PAGE_REV
     # Ob ein Park-Logo da ist; ohne blendet die Seite den Platz aus.
     stand["park_logo"] = _lade_parklogo(ordner, logo_url, oeffnen)
 

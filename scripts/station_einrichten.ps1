@@ -25,12 +25,21 @@ param(
 $ErrorActionPreference = "Stop"
 
 $seite = Join-Path $Dir "index.html"
-for ($i = 0; $i -lt 36 -and -not (Test-Path $seite); $i++) {
-  if ($i -eq 0) { Write-Host "Warte auf die Station-Seite vom Agenten..." }
+$stand = Join-Path $Dir "status.js"
+# Auf einen FRISCHEN Bericht warten, nicht nur auf die Datei: direkt nach einem
+# Update liegt noch die alte Seite da, die neue schreibt der Agent erst beim
+# ersten Herzschlag (Seite zuerst, dann status.js).
+$start = Get-Date
+Write-Host "Warte auf den ersten Bericht des Agenten (bis zu 3 Minuten)..."
+for ($i = 0; $i -lt 36; $i++) {
+  if ((Test-Path $stand) -and (Get-Item $stand).LastWriteTime -gt $start) { break }
   Start-Sleep -Seconds 5
 }
 if (-not (Test-Path $seite)) {
   throw "Keine Seite unter $seite. Laeuft Liftpic Sync ab Version 0.4.3? (Aufgabe LiftpicSync pruefen)"
+}
+if (-not ((Test-Path $stand) -and (Get-Item $stand).LastWriteTime -gt $start)) {
+  Write-Warning "Kein frischer Bericht des Agenten - die Seite wird trotzdem geoeffnet und laedt sich selbst neu, sobald er sich meldet."
 }
 
 $edge = @(

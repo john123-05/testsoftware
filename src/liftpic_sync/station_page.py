@@ -209,6 +209,10 @@ footer span+span::before{content:"\00b7";margin:0 8px;color:var(--line-strong)}
 (function(){
   "use strict";
   var data=null, flowSig="", flowList=[], parkLogoShown=false, faqSig="";
+  // Fassung dieser Seite. Schreibt der Agent nach einem Update eine neuere,
+  // laedt sich das offene Fenster selbst neu (sonst zeigte es bis zum
+  // naechsten Neustart die alte Seite mit neuen Daten).
+  var PAGE_REV="__PAGE_REV__";
 
   var I={
     camera:'<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/>',
@@ -458,7 +462,10 @@ footer span+span::before{content:"\00b7";margin:0 8px;color:var(--line-strong)}
   document.getElementById("hideBtn").addEventListener("click",hide);
   document.addEventListener("keydown",function(e){if(e.key==="Escape")hide()});
 
-  window.__station=function(s){data=s;try{render()}catch(e){if(window.console)console.error(e)}};
+  window.__station=function(s){
+    if(s&&s.page_rev&&s.page_rev!==PAGE_REV){location.reload();return}
+    data=s;try{render()}catch(e){if(window.console)console.error(e)}
+  };
   var current=null;
   function load(){
     var s=document.createElement("script");

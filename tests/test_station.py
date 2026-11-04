@@ -78,7 +78,7 @@ def test_agent_startet_die_kamera_nie_selbst():
 def test_station_schreibt_seite_und_stand(tmp_path: Path):
     ordner = tmp_path / "station"
     schreibe_station(ordner, {"park_slug": "kalahari-virginia", "probes": [], "note": "a</script>b"})
-    assert (ordner / "index.html").read_text(encoding="utf-8") == PAGE
+    assert (ordner / "index.html").read_text(encoding="utf-8").startswith(PAGE[:200])
     js = (ordner / "status.js").read_text(encoding="utf-8")
     assert js.startswith("window.__station&&window.__station(")
     assert "</script>" not in js
@@ -182,3 +182,13 @@ def test_logo_und_gaeste_bildschirm_sind_fernschaltbar():
     }, "token")
     assert env["STATION_LOGO_URL"].endswith("kalahari-logo-white.webp")
     assert env["GUEST_SCREEN_URL"] == "liftpictures-fotos.de/kalahari-virginia/screen"
+
+
+def test_seite_traegt_ihre_fassung_und_status_nennt_sie(tmp_path: Path):
+    from liftpic_sync.station import PAGE_REV
+    ordner = tmp_path / "station"
+    schreibe_station(ordner, {})
+    html = (ordner / "index.html").read_text(encoding="utf-8")
+    assert f'var PAGE_REV="{PAGE_REV}"' in html
+    assert "__PAGE_REV__" not in html
+    assert f'"page_rev":"{PAGE_REV}"' in (ordner / "status.js").read_text(encoding="utf-8")
