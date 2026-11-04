@@ -34,6 +34,7 @@ from .viewer_control import (
 )
 from . import __version__
 from .station import schreibe_station
+from .presentation import Praesentation
 
 
 log = logging.getLogger(__name__)
@@ -43,6 +44,9 @@ log = logging.getLogger(__name__)
 # genug fuer einen Automaten, der kurz offline war, eng genug, dass niemand von
 # einem Neustart ueberrascht wird, den er laengst vergessen hat.
 AUFTRAG_MAX_ALTER_MINUTEN = 30
+
+# Wie oft die Presentation (zweiter Bildschirm) nach neuen Fotos sieht.
+PRESENTATION_SECONDS = 2.0
 
 
 
@@ -246,6 +250,10 @@ class LiftpicService:
         # heartbeat pace and reused by the loop in between.
         self._probe_cache: list[dict] | None = None
         self._last_probe = 0.0
+        # Liftpictures Presentation (zweiter Bildschirm), siehe presentation.py.
+        self._praesentation: Praesentation | None = None
+        self._praesentation_zuletzt = 0.0
+        self._praesentation_fehler = 0.0
 
     def _build_workers(self) -> None:
         self.ride_tracker = RideTracker(self.settings, self.store)
@@ -825,6 +833,7 @@ class LiftpicService:
             ride_counts,
         )
         self._heartbeat_if_due(counts)
+        self._presentation_if_due()
         return {
             "rides_seen": ride_result.seen,
             "rides_new": ride_result.new,
@@ -1199,6 +1208,52 @@ class LiftpicService:
         # Bound the memory: a long-running agent must not accumulate for ever.
         if len(self._reported_faults) > 500:
             self._reported_faults.clear()
+
+    def _presentation_source(self) -> Settings:
+        """Woher die Fotos kommen: der Kamerastrom, der online verkauft."""
+        if self.settings.camera_streams_json:
+            from .camera_streams import stream_settings
+            streams = stream_settings(self.settings)
+            for s in streams:
+                if s.upload_source == "online":
+                    return s
+            if streams:
+                return streams[0]
+        return self.settings
+
+    def _presentation_if_due(self) -> None:
+        """Den Ordner der Presentation aktuell halten. Wirft nie.
+
+        Laeuft im Takt der Hauptschleife (alle ~2 s), damit ein neues Foto
+        sofort auf dem Bildschirm steht. Geschrieben wird nur bei Aenderung.
+        Ist die Presentation abgeschaltet, aber schon eingerichtet, bekommt die
+        offene Seite den Hinweis "nicht freigeschaltet" statt alter Fotos.
+        """
+        ordner = self.settings.presentation_dir
+        if ordner is None:
+            return
+        if not self.settings.presentation_enabled and not (ordner / "index.html").exists():
+            return
+        jetzt = time.time()
+        if jetzt - self._praesentation_zuletzt < PRESENTATION_SECONDS:
+            return
+        self._praesentation_zuletzt = jetzt
+        try:
+            if self._praesentation is None or self._praesentation.ordner != ordner:
+                self._praesentation = Praesentation(ordner)
+            quelle = self._presentation_source()
+            self._praesentation.schreibe(
+                raw_dir=quelle.raw_dir,
+                viewer_xml=quelle.viewer_settings_xml,
+                customer_code=quelle.customer_code,
+                positionen=quelle.file_code_positions,
+                park_slug=self.settings.park_slug,
+                lizenziert=bool(self.settings.presentation_enabled and self.settings.device_token),
+            )
+        except Exception as exc:
+            if jetzt - self._praesentation_fehler > 600:
+                self._praesentation_fehler = jetzt
+                log.warning("presentation could not be written: %s", exc)
 
     def _write_station(self, payload: dict[str, object]) -> None:
         """Den Stand fuer die lokale Statusseite schreiben. Wirft nie."""

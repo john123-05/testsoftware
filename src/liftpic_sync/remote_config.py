@@ -84,13 +84,14 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("station_enabled", "STATION_ENABLED"),
     ("station_logo_url", "STATION_LOGO_URL"),
     ("guest_screen_url", "GUEST_SCREEN_URL"),
+    ("presentation_enabled", "PRESENTATION_ENABLED"),
     ("probe_skip_programs", "PROBE_SKIP_PROGRAMS"),
 )
 
 # Welche davon Schalter sind und deshalb als true/false geschrieben werden.
 FERNSCHALTBAR_BOOLEAN = {
     "viewer_restart_enabled", "asset_sync_enabled", "probe_enabled",
-    "station_enabled",
+    "station_enabled", "presentation_enabled",
 }
 
 

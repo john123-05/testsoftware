@@ -166,6 +166,11 @@ class Settings:
     # Gaeste-Bildschirm (Edge im Kiosk-Modus): Teil der Adresse, an dem wir ihn
     # erkennen, z. B. "liftpictures-fotos.de/kalahari-virginia/screen".
     guest_screen_url: str = ""
+    # "Liftpictures Presentation": Nachbau der Praesentation des
+    # Verkaufsprogramms mit echten Kauf-Links in den QR-Codes. Freischaltung
+    # (Lizenz) pro PC aus dem Dashboard; ohne sie zeigt die Seite einen Hinweis.
+    presentation_enabled: bool = False
+    presentation_dir: Path | None = None
     # Payment terminal, for a plain reachability check (no protocol talk).
     terminal_host: str = ""
     terminal_port: int = 22000
@@ -339,6 +344,11 @@ class Settings:
             station_enabled=parse_bool(_get(values, "STATION_ENABLED", "true"), True),
             station_logo_url=_get(values, "STATION_LOGO_URL", "").strip(),
             guest_screen_url=_get(values, "GUEST_SCREEN_URL", "").strip(),
+            presentation_enabled=parse_bool(_get(values, "PRESENTATION_ENABLED", "false"), False),
+            presentation_dir=(
+                Path(pres_raw) if (pres_raw := _get(values, "PRESENTATION_DIR", "").strip())
+                else app_dir.parent / "presentation"
+            ),
             station_dir=(
                 Path(station_raw) if (station_raw := _get(values, "STATION_DIR", "").strip())
                 else app_dir.parent / "station"
