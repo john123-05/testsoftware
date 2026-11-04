@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Liftpictures Display: zeigt die lokalen Seiten des Agenten als eigenes
+    Programm (ohne Browserleiste) - die Presentation auf dem zweiten Monitor
+    und die Station auf dem Hauptmonitor.
+
+    .NET Framework 4.8 ist auf jedem Windows 10/11 vorhanden, die Anzeige
+    uebernimmt die WebView2-Laufzeit (kommt mit Microsoft Edge). Damit braucht
+    der PC nichts zusaetzlich installiert; das Programm ist nur wenige
+    hundert KB gross. Gebaut wird es in .github/workflows/build-windows.yml.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>LiftpicturesDisplay</AssemblyName>
+    <RootNamespace>Liftpictures.Display</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <LangVersion>latest</LangVersion>
+    <Company>Liftpictures</Company>
+    <Product>Liftpictures Display</Product>
+    <Description>Liftpictures Presentation and Station</Description>
+    <Version>0.5.0</Version>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2210.55" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
