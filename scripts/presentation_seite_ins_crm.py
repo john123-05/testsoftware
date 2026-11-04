@@ -5,7 +5,9 @@ genau dasselbe zu sehen ist wie am PC, kommen Seite und Regeln aus diesem Repo:
   public/presentation/index.html              <- presentation_page.PAGE
   src/crm/customer/presentationDesignData.ts  <- presentation_design.FELDER/VORLAGEN
 
-Aufruf: python3 scripts/presentation_seite_ins_crm.py <Pfad zum CRM-Repo>
+Aufruf: python3 scripts/presentation_seite_ins_crm.py <Repo> [Pfad der TS-Datei im Repo]
+  CRM:       ... ~/Projects/liftpictures-crm-claude
+  Dashboard: ... ~/Projects/dashboard2 src/components/presentation/presentationDesignData.ts
 """
 import json
 import sys
@@ -27,5 +29,7 @@ ts = (
     f"export const PRESENTATION_FIELDS = {json.dumps(felder, indent=2)} as const;\n\n"
     f"export const PRESENTATION_PRESETS: Record<string, Record<string, unknown>> = {json.dumps(VORLAGEN, indent=2)};\n"
 )
-(crm / "src" / "crm" / "customer" / "presentationDesignData.ts").write_text(ts, encoding="utf-8")
+ziel = crm / (sys.argv[2] if len(sys.argv) > 2 else "src/crm/customer/presentationDesignData.ts")
+ziel.parent.mkdir(parents=True, exist_ok=True)
+ziel.write_text(ts, encoding="utf-8")
 print("ok:", seite)

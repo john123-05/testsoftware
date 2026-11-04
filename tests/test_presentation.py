@@ -236,3 +236,20 @@ def test_karussell_holt_mehr_fotos(tmp_path: Path):
                                  jetzt=datetime(2026, 11, 4, 12, 0).timestamp())
     stand = _stand(ziel)
     assert len(stand["photos"]) == 12 and stand["photos"][0]["ts"] > stand["photos"][1]["ts"]
+
+
+def test_zeitplan_waehlt_abends_ein_anderes_design():
+    from liftpic_sync.presentation_design import gestaltung
+    design = {"preset": "signature", "header_title": "Hallo", "schedule": [
+        {"name": "Abend", "from": "18:00", "to": "02:00", "design": {"preset": "midnight"}},
+        {"name": "Wochenende", "from": "08:00", "to": "12:00", "days": [5, 6], "design": {"preset": "clean"}},
+    ]}
+    tag = gestaltung(stil(None), design, datetime(2026, 11, 4, 12, 0))      # Mittwoch Mittag
+    assert tag["preset"] == "signature" and tag["schedule_active"] is None
+    abend = gestaltung(stil(None), design, datetime(2026, 11, 4, 21, 0))
+    assert abend["preset"] == "midnight" and abend["header_title"] == "Hallo"   # Text geerbt
+    nacht = gestaltung(stil(None), design, datetime(2026, 11, 5, 1, 30))       # nach Mitternacht
+    assert nacht["schedule_active"] == "Abend"
+    mittwoch_frueh = gestaltung(stil(None), design, datetime(2026, 11, 4, 9, 0))
+    samstag_frueh = gestaltung(stil(None), design, datetime(2026, 11, 7, 9, 0))
+    assert mittwoch_frueh["preset"] == "signature" and samstag_frueh["preset"] == "clean"

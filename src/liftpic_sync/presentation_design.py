@@ -180,9 +180,54 @@ def classic_aus_settings(s: dict) -> dict:
     }
 
 
-def gestaltung(viewer_stil: dict, design: dict | None) -> dict:
-    """Fertige Gestaltung fuer die Seite."""
-    design = design or {}
+# Was ein Zeitplan vom Standard-Design erbt, wenn er es nicht selbst setzt.
+ERBT = ("logo_url", "header_title", "header_subtitle", "ticker_messages", "qr_caption",
+        "touch_text", "empty_text", "time_format", "orientation")
+ZEIT = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
+
+
+def aktiver_plan(design: dict, jetzt=None) -> tuple[dict, str | None]:
+    """Das Design, das gerade gilt: ein passender Zeitplan oder der Standard.
+
+    `schedule` ist eine Liste aus {"name", "from": "HH:MM", "to": "HH:MM",
+    "days": [0..6] (Mo=0, leer = jeden Tag), "design": {...}}. Ueber Mitternacht
+    geht (from 22:00, to 06:00). Der erste passende Eintrag gewinnt.
+    Rueckgabe: (Design, Name des Zeitplans oder None).
+    """
+    from datetime import datetime
+    plaene = design.get("schedule")
+    if not isinstance(plaene, list):
+        return design, None
+    jetzt = jetzt or datetime.now()
+    uhr = jetzt.strftime("%H:%M")
+    for plan in plaene[:6]:
+        if not isinstance(plan, dict) or not isinstance(plan.get("design"), dict):
+            continue
+        von, bis = str(plan.get("from", "")), str(plan.get("to", ""))
+        if not (ZEIT.fullmatch(von) and ZEIT.fullmatch(bis)):
+            continue
+        tage = plan.get("days")
+        tag = jetzt.weekday()
+        if von <= bis:
+            drin = von <= uhr < bis
+        else:  # ueber Mitternacht: der Morgen gehoert noch zum Vortag
+            drin = uhr >= von or uhr < bis
+            if uhr < bis:
+                tag = (tag - 1) % 7
+        if isinstance(tage, list) and tage and tag not in tage:
+            drin = False
+        if drin:
+            eigenes = dict(plan["design"])
+            for k in ERBT:
+                if k not in eigenes and k in design:
+                    eigenes[k] = design[k]
+            return eigenes, str(plan.get("name") or "")[:40] or "schedule"
+    return design, None
+
+
+def gestaltung(viewer_stil: dict, design: dict | None, jetzt=None) -> dict:
+    """Fertige Gestaltung fuer die Seite (mit Zeitplan)."""
+    design, plan = aktiver_plan(design or {}, jetzt)
     ergebnis = {k: v[1] for k, v in FELDER.items()}
     ergebnis.update(classic_aus_settings(viewer_stil))
     vorlage = design.get("preset") if design.get("preset") in VORLAGEN else "classic"
@@ -195,6 +240,7 @@ def gestaltung(viewer_stil: dict, design: dict | None) -> dict:
         if wert is not None:
             ergebnis[schluessel] = wert
     ergebnis["preset"] = vorlage
+    ergebnis["schedule_active"] = plan
     ergebnis["crop_x"] = viewer_stil.get("crop_x", 0)
     ergebnis["crop_y"] = viewer_stil.get("crop_y", 0)
     if not ergebnis["ticker_messages"]:
