@@ -27,7 +27,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from .station_assets import LIFTPIC_LOGO_PNG_B64
+from .station_assets import LIFTPIC_LOGO_PNG_B64, STATION_ICON_ICO_B64
 from .station_page import PAGE
 
 log = logging.getLogger(__name__)
@@ -111,6 +111,8 @@ def schreibe_station(ordner: Path, stand: dict, logo_url: str = "", oeffnen=None
     # auch die passende Seite.
     _schreibe_falls_anders(ordner / "index.html", PAGE.replace("__PAGE_REV__", PAGE_REV))
     _schreibe_falls_anders(ordner / "liftpic-logo.png", base64.b64decode(LIFTPIC_LOGO_PNG_B64))
+    # Fuer die Verknuepfungen (Desktop, Startmenue, Taskleiste).
+    _schreibe_falls_anders(ordner / "station.ico", base64.b64decode(STATION_ICON_ICO_B64))
 
     stand = dict(stand)
     stand["page_rev"] = PAGE_REV

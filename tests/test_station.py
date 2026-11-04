@@ -192,3 +192,11 @@ def test_seite_traegt_ihre_fassung_und_status_nennt_sie(tmp_path: Path):
     assert f'var PAGE_REV="{PAGE_REV}"' in html
     assert "__PAGE_REV__" not in html
     assert f'"page_rev":"{PAGE_REV}"' in (ordner / "status.js").read_text(encoding="utf-8")
+
+
+def test_station_legt_ein_windows_symbol_ab(tmp_path: Path):
+    ordner = tmp_path / "station"
+    schreibe_station(ordner, {})
+    ico = (ordner / "station.ico").read_bytes()
+    assert ico[:4] == b"\x00\x00\x01\x00"  # ICO-Kopf
+    assert b"\x89PNG" in ico

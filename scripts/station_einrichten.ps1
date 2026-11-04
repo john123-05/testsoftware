@@ -53,13 +53,16 @@ $url = "file:///" + ($seite -replace "\\", "/")
 $argumente = "--app=$url --start-fullscreen --window-position=$X,$Y --user-data-dir=`"$profil`" --no-first-run --no-default-browser-check"
 
 $shell = New-Object -ComObject WScript.Shell
-foreach ($ordner in @([Environment]::GetFolderPath("Startup"), [Environment]::GetFolderPath("Desktop"))) {
+$icon = Join-Path $Dir "station.ico"
+$startmenue = Join-Path ([Environment]::GetFolderPath("Programs")) "Liftpictures"
+New-Item -ItemType Directory -Force -Path $startmenue | Out-Null
+foreach ($ordner in @([Environment]::GetFolderPath("Startup"), [Environment]::GetFolderPath("Desktop"), $startmenue)) {
   $lnk = $shell.CreateShortcut((Join-Path $ordner "Liftpictures Station.lnk"))
   $lnk.TargetPath = $edge
   $lnk.Arguments = $argumente
   $lnk.WorkingDirectory = $Dir
   $lnk.Description = "Liftpictures Station - system status of this photo PC"
-  $lnk.IconLocation = "$edge,0"
+  $lnk.IconLocation = if (Test-Path $icon) { "$icon,0" } else { "$edge,0" }
   $lnk.Save()
   Write-Host "Verknuepfung: $($lnk.FullName)"
 }
@@ -72,3 +75,5 @@ Start-Sleep -Seconds 1
 
 Start-Process -FilePath $edge -ArgumentList $argumente
 Write-Host "Liftpictures Station ist offen. Schliessen: Knopf 'Hide screen' oben rechts oder Esc."
+Write-Host "In die Taskleiste: auf dem Desktop Rechtsklick auf 'Liftpictures Station' > 'Weitere Optionen anzeigen' > 'An Taskleiste anheften'."
+Write-Host "Oder: Start-Taste, 'Liftpictures Station' tippen, Rechtsklick > 'An Taskleiste anheften'."
