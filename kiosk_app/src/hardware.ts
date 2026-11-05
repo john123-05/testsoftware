@@ -20,6 +20,9 @@ import type { Voucher } from './vouchers';
 export type HwEvents = { coin: number; status: HwStatus; print: { done: number; total: number }; card: 'waiting' | 'processing' };
 /** Welche Geraete die Einstellungen brauchen - nur die startet das Programm. */
 export type Devices = { card: boolean; cash: boolean; printer: boolean; face: boolean };
+export type PickupCode = { kind: 'order' | 'grant'; id: string; token: string };
+export type PickupResult = { status: 'ready' | 'claimed'; codes: string[] } |
+  { status: 'already' | 'invalid' | 'offline' | 'unavailable' | 'printer' | 'missing' };
 export type PrintOptions = { qr: boolean; date: boolean; logo: boolean };
 /** Ein Verkauf, wie ihn Liftpictures Display in Statistic.txt und sales/JJJJ-MM-TT.jsonl schreibt. */
 export type SaleRecord = {
@@ -36,6 +39,7 @@ export interface Hardware {
   cashPayout(cents: number): Promise<number>;
   cardPay(cents: number): Promise<CardResult>;
   cardCancel(): void;
+  pickup(code: PickupCode, photos?: Photo[]): Promise<PickupResult>;
   print(photos: Photo[], opts?: PrintOptions): Promise<boolean>;
   faceSearch(image: string | null, candidates: Photo[]): Promise<string[]>;
   /** Ob das Programm eine Handy-Zahlung bestaetigen kann. Sonst tippt der Gast auf "Fertig". */
@@ -154,6 +158,7 @@ export class SimHardware extends Emitter implements Hardware {
     const m = /^P([1-5])FREE[A-Z2-9]{2}$/.exec(c);
     return m ? { code: c, kind: 'photos', photos: Number(m[1]) } : null;
   }
+  async pickup(): Promise<PickupResult> { return { status: 'unavailable' }; }
   configure() { /* Simulator: alles da */ }
   sale(rec: SaleRecord) { console.info('[kiosk] Verkauf', rec); }
   exit() { /* im Browser nichts zu schliessen */ }
@@ -192,6 +197,10 @@ export class HostHardware extends Emitter implements Hardware {
   cashPayout(cents: number) { return this.call<number>('cashPayout', cents); }
   cardPay(cents: number) { return this.call<CardResult>('cardPay', cents); }
   cardCancel() { void this.call('cardCancel'); }
+  async pickup(code: PickupCode, photos?: Photo[]): Promise<PickupResult> {
+    const result = await this.call<PickupResult | null>('pickup', { ...code, phase: photos ? 'claim' : 'check', codes: photos?.map((p) => p.code) }, photos?.map((p) => p.file));
+    return result?.status ? result : { status: 'offline' };
+  }
   async print(photos: Photo[], opts: PrintOptions = { qr: true, date: true, logo: true }) {
     // Den QR-Code zeichnet die App (gleiche Bibliothek wie am Bildschirm), das Programm setzt ihn aufs Foto.
     const jobs = await Promise.all(photos.map(async (p) => ({

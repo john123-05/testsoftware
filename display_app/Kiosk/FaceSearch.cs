@@ -32,6 +32,8 @@ namespace Liftpictures.Display.Kiosk
             _cfg = cfg;
         }
 
+        public bool Installed => File.Exists(_cfg().FaceClient);
+
         public bool Available { get; private set; }
 
         public void Start()

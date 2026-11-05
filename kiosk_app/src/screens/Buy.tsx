@@ -1,15 +1,16 @@
 // Kaufen: Format waehlen (eine Entscheidung pro Bildschirm), Warenkorb mit ehrlicher Summe, Zahlart.
 import { photoFull, photoSrc } from '../data';
 import { useKiosk } from '../store';
-import { Bottom, Icon, type IconName } from '../ui';
-import type { Format, PayMethod } from '../config';
+import { Bottom, Icon, QR, type IconName } from '../ui';
+import { printHomeLink, type Format, type PayMethod } from '../config';
 
-const FORMAT_ICON: Record<Format, IconName> = { print: 'printer', digital: 'phone', combo: 'sparkle' };
+const FORMAT_ICON: Record<Format, IconName> = { print: 'printer', digital: 'phone', combo: 'combo' };
 
 export function Products() {
   const k = useKiosk();
   const { t, cfg } = k;
   const p = k.buying ? k.byKey.get(k.buying) : null;
+  const ship = printHomeLink(cfg.links.print_home, p?.code);
   const separate = cfg.products.print.price + cfg.products.digital.price;
   const comboSave = cfg.products.print.enabled && cfg.products.digital.enabled ? separate - cfg.products.combo.price : 0;
   const dayPass = k.voucher?.kind === 'day';
@@ -23,12 +24,10 @@ export function Products() {
             const best = f === 'combo' && comboSave > 0;
             const included = dayPass && f === 'digital';
             return (
-              <button key={f} className={`prod${best ? ' best' : ''}`} onClick={() => k.choose(f)}>
-                {best && <span className="ribbon">{t('products.best')}</span>}
+              <button key={f} className="prod" onClick={() => k.choose(f)}>
                 <span className="prod-icon"><Icon name={FORMAT_ICON[f]} /></span>
                 <span className="prod-text">
                   <b>{t(`products.${f}`)}</b>
-                  <small>{t(`products.${f}_sub`)}</small>
                   {best && <em>{t('products.save', { x: k.money(comboSave) })}</em>}
                   {included && <em>{t('products.included')}</em>}
                 </span>
@@ -36,6 +35,10 @@ export function Products() {
               </button>
             );
           })}
+          {ship && <button className="prod" onClick={() => k.go('print_home')}>
+            <span className="prod-icon"><Icon name="delivery" /></span>
+            <span className="prod-text"><b>{t('ship.title')}</b></span>
+          </button>}
         </div>
       </div>
       <Bottom />
@@ -43,10 +46,23 @@ export function Products() {
   );
 }
 
+export function PrintHome() {
+  const k = useKiosk();
+  const photo = k.buying ? k.byKey.get(k.buying) : null;
+  const url = printHomeLink(k.cfg.links.print_home, photo?.code);
+  return <div className="screen print-home">
+    <div className="handoff-body">
+      {url && <QR value={url} size="22rem" />}
+      <div><h1 className="title">{k.t('ship.title')}</h1><p className="sub">{k.t(url ? 'ship.instructions' : 'ship.unavailable')}</p></div>
+    </div>
+    <Bottom />
+  </div>;
+}
+
 export function Cart() {
   const k = useKiosk();
   const { t, pricing } = k;
-  const add = () => (k.search.mode ? k.backTo('gallery') : k.go('home'));
+  const add = () => k.backTo('gallery');
   return (
     <div className="screen cart">
       <div className="pad"><h1 className="title">{t('cart.title')}</h1></div>
@@ -71,7 +87,7 @@ export function Cart() {
           {pricing.hint && (
             <button className="cart-hint" onClick={add}>
               <Icon name="sparkle" />
-              <span>{t('cart.hint', { n: pricing.hint.more, m: pricing.hint.photos, x: k.money(pricing.hint.price) })} – <em>{t('cart.hint_save', { x: k.money(pricing.hint.save) })}</em></span>
+              <span>{t('cart.hint', { n: pricing.hint.more, m: pricing.hint.photos, x: k.money(pricing.hint.price) })}. <em>{t('cart.hint_save', { x: k.money(pricing.hint.save) })}</em></span>
             </button>
           )}
         </div>
@@ -104,7 +120,6 @@ export function Method() {
           <button key={m.id} className="method" disabled={m.disabled} onClick={() => k.go(m.screen)}>
             <span className="method-icon"><Icon name={METHOD_ICON[m.id]} /></span>
             <b>{t(`method.${m.id}`)}</b>
-            <small>{t(`method.${m.id}_sub`)}</small>
             {m.note && <em>{m.note}</em>}
           </button>
         ))}

@@ -18,6 +18,8 @@ function Help() {
       <h2><Icon name="help" />{k.t('help.title')}</h2>
       <ol className="help-steps">{steps.map((s, i) => <li key={i}><span>{i + 1}</span>{s}</li>)}</ol>
       <p className="modal-note">{k.t('help.staff')}</p>
+      {k.cfg.find.phone && k.cfg.links.phone_search && ['gallery', 'detail', 'number', 'face', 'scan'].includes(k.screen) &&
+        <button className="btn btn-ghost full" onClick={() => k.setOverlay('handoff')}><Icon name="phone" />{k.t('home.phone')}</button>}
       <button className="btn btn-primary btn-xl full" onClick={() => k.setOverlay(null)}>{k.t('common.close')}</button>
     </div>
   );
@@ -39,7 +41,7 @@ function Handoff() {
 
 function Idle() {
   const k = useKiosk();
-  const [left, setLeft] = useState(15);
+  const [left, setLeft] = useState(10);
   useEffect(() => {
     if (left <= 0) { k.reset(); return; }
     const id = window.setTimeout(() => setLeft((l) => l - 1), 1000);
@@ -47,7 +49,6 @@ function Idle() {
   }, [left]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="modal modal-idle" onClick={(e) => e.stopPropagation()}>
-      <span className="idle-count">{left}</span>
       <h2>{k.t('idle.title')}</h2>
       <p className="modal-text">{k.t('idle.sub', { s: left })}</p>
       <div className="modal-actions">

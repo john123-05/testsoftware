@@ -1,31 +1,37 @@
 // Liftpictures Kiosk - neues Verkaufsprogramm fuer Fotoautomaten.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { DEFAULT_CONFIG, EDITIONS, THEMES, applyEdition, mergeConfig, type KioskConfig, type Tier } from './config';
+import { DEFAULT_CONFIG, EDITIONS, THEMES, applyEdition, mergeConfig, themePreset, type KioskConfig, type Tier } from './config';
 import { createHardware, SimHardware } from './hardware';
 import { useKioskData } from './data';
 import { useTier } from './perf';
 import { KioskProvider, useKiosk, type Screen } from './store';
-import { TopBar } from './ui';
+import { Icon, QR, TopBar } from './ui';
 import { Overlays, Blocked } from './overlays';
 import { SimPanel, type Frame } from './SimPanel';
-import { Attract, FaceScreen, Home, NumberScreen, TimeScreen } from './screens/Start';
+import { Attract, FaceScreen, NumberScreen } from './screens/Start';
 import { Detail, Gallery } from './screens/Browse';
-import { Cart, Method, Products } from './screens/Buy';
+import { Cart, Method, PrintHome, Products } from './screens/Buy';
 import { CardPay, CashPay, PhonePay, Success, VoucherScreen } from './screens/Pay';
 
+import { Scan } from './screens/Scan';
+
 const SCREENS: Record<Screen, () => JSX.Element | null> = {
-  attract: Attract, home: Home, time: TimeScreen, gallery: Gallery, detail: Detail, number: NumberScreen, face: FaceScreen,
+  attract: Attract, gallery: Gallery, scan: Scan, print_home: PrintHome, detail: Detail, number: NumberScreen, face: FaceScreen,
   products: Products, cart: Cart, method: Method, card: CardPay, cash: CashPay, phone: PhonePay, voucher: VoucherScreen, success: Success,
 };
 
 function themeStyle(cfg: KioskConfig): CSSProperties {
-  const th = THEMES[cfg.theme.preset] ?? THEMES.alpine;
+  const th = THEMES[cfg.theme.preset] ?? THEMES.clean;
+  const brand = cfg.theme.brand ?? cfg.theme.accent ?? th.brand;
+  const hex = /^#[0-9a-f]{6}$/i.test(brand) ? brand : th.brand;
+  const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const ink = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 > 0.179 ? '#111111' : '#ffffff';
   const vars: Record<string, string> = {
     '--bg': th.bg, '--bg2': th.bg2, '--surface': th.surface, '--surface2': th.surface2, '--line': th.line,
-    '--text': th.text, '--muted': th.muted, '--brand': cfg.theme.brand || th.brand, '--brandInk': th.brandInk,
-    '--accent': cfg.theme.accent || th.accent, '--accentInk': th.accentInk,
+    '--text': th.text, '--muted': th.muted, '--brand': hex, '--brandInk': ink,
+    '--accent': hex, '--accentInk': ink,
   };
-  if (cfg.theme.background) vars['--bgImage'] = cfg.theme.background.startsWith('http') || cfg.theme.background.startsWith('data:') ? `url("${cfg.theme.background}")` : cfg.theme.background;
   return vars as CSSProperties;
 }
 
@@ -39,25 +45,47 @@ function useIdle() {
     window.addEventListener('keydown', touch, true);
     return () => { window.removeEventListener('pointerdown', touch, true); window.removeEventListener('keydown', touch, true); };
   }, []);
-  useEffect(() => { last.current = Date.now(); }, [k.screen]);
+  useEffect(() => { last.current = Date.now(); }, [k.screen, k.overlay]);
+  const idleSeconds = k.cfg.attract.enabled ? k.cfg.attract.after_seconds : k.cfg.idle_seconds;
   useEffect(() => {
     const id = window.setInterval(() => {
       if (k.screen === 'attract' || k.screen === 'success' || k.busy || k.overlay === 'idle' || k.overlay === 'admin') return;
-      if (Date.now() - last.current > k.cfg.idle_seconds * 1000) k.setOverlay('idle');
+      if (Date.now() - last.current > idleSeconds * 1000) k.setOverlay('idle');
     }, 1000);
     return () => window.clearInterval(id);
-  }, [k.screen, k.busy, k.overlay, k.cfg.idle_seconds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [k.screen, k.busy, k.overlay, idleSeconds]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+function SearchHelp() {
+  const k = useKiosk();
+  const [dismissed, setDismissed] = useState(0);
+  const [visibleSince, setVisibleSince] = useState(0);
+  useEffect(() => {
+    if (!k.searchingSince) return;
+    const remaining = k.cfg.help_seconds * 1000 - (Date.now() - k.searchingSince);
+    const timer = window.setTimeout(() => setVisibleSince(k.searchingSince), Math.max(0, remaining));
+    return () => window.clearTimeout(timer);
+  }, [k.searchingSince, k.cfg.help_seconds]);
+  if (!k.cfg.find.phone || !k.cfg.links.phone_search || k.overlay ||
+      !['gallery', 'detail', 'number'].includes(k.screen) ||
+      !k.searchingSince || visibleSince !== k.searchingSince || dismissed === k.searchingSince) return null;
+  return <aside className="search-help">
+    <QR value={k.link(k.cfg.links.phone_search, [], k.search.time)} size="7rem" />
+    <div><strong>{k.t('coach.stuck')}</strong><p>{k.t('coach.stuck_sub')}</p></div>
+    <button className="btn btn-ghost" onClick={() => setDismissed(k.searchingSince)} aria-label={k.t('common.close')}><Icon name="x" /></button>
+  </aside>;
 }
 
 function Shell() {
   const k = useKiosk();
   useIdle();
   const View = SCREENS[k.screen];
-  const th = THEMES[k.cfg.theme.preset] ?? THEMES.alpine;
+  const th = THEMES[k.cfg.theme.preset] ?? THEMES.clean;
   return (
-    <div className={`app ${k.portrait ? 'portrait' : 'landscape'}`} style={themeStyle(k.cfg)} data-scheme={th.scheme}>
+    <div className={`app ${k.portrait ? 'portrait' : 'landscape'}`} style={themeStyle(k.cfg)} data-scheme={th.scheme} data-tier={k.tier}>
       {k.screen !== 'attract' && <TopBar />}
       <main className="main"><View key={k.screen === 'detail' ? `detail-${k.detail}` : k.screen} /></main>
+      <SearchHelp />
       <Overlays />
     </div>
   );
@@ -83,7 +111,9 @@ export default function App() {
     const ed = params.get('edition');
     if (ed && EDITIONS[ed]) c = applyEdition(c, ed);
     const th = params.get('theme');
-    if (th && THEMES[th]) c = { ...c, theme: { ...c.theme, preset: th } };
+    if (th) c = { ...c, theme: { ...c.theme, preset: themePreset(th) } };
+    if (params.get('screen') === 'print_home') c = { ...c, links: { ...c.links, print_home: 'https://liftpictures-fotos.de/plose/shop?code={code}' } };
+    if (!params.has('preview')) c = { ...c, find: { ...c.find, scan: true } };
     if (params.get('lang')) c = { ...c, language: params.get('lang') as KioskConfig['language'] };
     return c;
   });
@@ -106,7 +136,7 @@ export default function App() {
     if (!preview) return;
     const on = (e: MessageEvent) => {
       const d = e.data as { type?: string; config?: unknown } | null;
-      if (d?.type === 'kiosk-preview') setSimCfg(mergeConfig(d.config));
+      if (e.source === window.parent && e.origin === location.origin && d?.type === 'kiosk-preview') setSimCfg(mergeConfig(d.config));
     };
     window.addEventListener('message', on);
     window.parent?.postMessage({ type: 'kiosk-preview-ready' }, '*');
@@ -140,9 +170,9 @@ export default function App() {
 
 function BlockedShell({ reason }: { reason?: string | null }) {
   const k = useKiosk();
-  const th = THEMES[k.cfg.theme.preset] ?? THEMES.alpine;
+  const th = THEMES[k.cfg.theme.preset] ?? THEMES.clean;
   return (
-    <div className="app" style={themeStyle(k.cfg)} data-scheme={th.scheme}>
+    <div className="app" style={themeStyle(k.cfg)} data-scheme={th.scheme} data-tier={k.tier}>
       <Blocked reason={reason} />
       <Overlays />
     </div>

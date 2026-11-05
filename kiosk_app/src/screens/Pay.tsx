@@ -2,10 +2,9 @@
 // Grundsaetze: der Pfeil zeigt auf das echte Geraet, Betrag immer gross, Abbrechen jederzeit -
 // eingeworfenes Geld kommt zurueck (oder bleibt als Guthaben, wenn der Automat kein Wechselgeld hat).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { photoFull } from '../data';
 import { SimHardware } from '../hardware';
-import { useKiosk } from '../store';
-import { Bottom, DeviceArrow, Icon, Keypad, QR, Ring, Spinner } from '../ui';
+import { saleRecord, useKiosk } from '../store';
+import { Bottom, DeviceArrow, Icon, Keypad, QR, Spinner } from '../ui';
 
 type CardState = 'waiting' | 'processing' | 'approved' | 'declined' | 'timeout';
 const CARD_SECONDS = 60;
@@ -47,20 +46,24 @@ export function CardPay() {
   return (
     <div className="screen pay pay-card">
       <div className="pay-body">
-        <div className={`terminal-art st-${state}`}>
-          <div className="terminal">
-            <div className="terminal-screen">
-              {state === 'processing' ? <Spinner /> : state === 'approved' ? <Icon name="check" /> : failed ? <Icon name="x" /> : (
-                <><b>{k.money(due)}</b><span className="contactless"><i /><i /><i /></span></>
-              )}
-            </div>
-            <div className="terminal-keys">{Array.from({ length: 12 }, (_, i) => <i key={i} />)}</div>
-          </div>
-          {state === 'waiting' && <div className="tap-card"><Icon name="card" /></div>}
-        </div>
+        <svg className="payment-art" viewBox="0 0 300 220" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="24" y="24" width="112" height="168" rx="15" />
+          <rect x="43" y="44" width="74" height="58" rx="6" />
+          <path d="M57 125h5m15 0h5m15 0h5m-45 19h5m15 0h5m15 0h5m-45 19h5m15 0h5m15 0h5" />
+          {state === 'approved' && <path d="m59 72 13 13 28-28" />}
+          {failed && <path d="m65 58 29 29m0-29L65 87" />}
+          {state === 'processing' && <path d="M60 73h3m15 0h3m15 0h3" />}
+          {state === 'waiting' && <>
+            <path d="M66 72c2 2 2 5 0 7m9-13c5 5 5 14 0 19m10-25c8 9 8 23 0 31" />
+            <g className="tap-hand">
+              <rect x="155" y="73" width="84" height="54" rx="7" transform="rotate(-13 197 100)" />
+              <path d="m157 94 81-19M218 110l-27-15c-10-6-20 4-13 12l22 27h-21c-9 0-12 12-4 16l47 28c7 4 16 6 24 6h20v-43h-9l-18-32" />
+            </g>
+          </>}
+        </svg>
         <div className="pay-info">
-          <h1 className="title">{t('card.title', { x: k.money(due) })}</h1>
-          {state === 'waiting' && <><p className="pay-lead">{t('card.tap')}</p><p className="sub">{t('card.follow')}</p></>}
+          <h1 className="title">{k.money(due)}</h1>
+          {state === 'waiting' && <p className="pay-lead">{t('card.tap')}</p>}
           {state === 'processing' && <p className="pay-lead"><Spinner />{t('card.processing')}</p>}
           {state === 'approved' && <p className="pay-lead ok"><Icon name="check" />{t('card.approved')}</p>}
           {failed && (
@@ -102,7 +105,7 @@ export function CashPay() {
     return () => { off(); k.hw.cashDisable(); k.setBusy(false); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { k.setBusy(inserted > 0 && !done); }, [inserted, done]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { k.setBusy(inserted > 0 || done || !!leaving); }, [inserted, done, leaving]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (done || inserted < due) return;
@@ -136,15 +139,14 @@ export function CashPay() {
   return (
     <div className="screen pay pay-cash">
       <div className="pay-body">
-        <div className="cash-ring">
-          <Ring value={due ? inserted / due : 1}>
-            <small>{t('cash.paid')}</small>
-            <b key={flash} className="bump">{k.money(inserted)}</b>
-            <small>{k.money(due)}</small>
-          </Ring>
-        </div>
+        <svg className="payment-art cash-art" viewBox="0 0 240 190" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="30" y="104" width="180" height="58" rx="10" />
+          <path d="M58 127h124m-62-76v40m-13-14 13 14 13-14" />
+          <circle cx="120" cy="28" r="19" />
+        </svg>
         <div className="pay-info">
-          <h1 className="title">{done ? t('cash.complete') : t('cash.title', { x: k.money(leftToPay) })}</h1>
+          <h1 className="title">{done ? t('cash.complete') : t('cash.left')}</h1>
+          {!done && !leaving && <strong className="cash-amount" key={flash}>{k.money(leftToPay)}</strong>}
           {leaving ? (
             <p className="pay-lead ok"><Icon name="coins" />{leaving.kind === 'refund' ? t('cash.refund', { x: k.money(leaving.cents) }) : t('cash.credit', { x: k.money(leaving.cents) })}</p>
           ) : done ? (
@@ -154,7 +156,6 @@ export function CashPay() {
               <p className="pay-lead">{t('cash.insert')}</p>
               <div className="cash-rows">
                 <div><span>{t('cash.paid')}</span><b>{k.money(inserted)}</b></div>
-                <div className="strong"><span>{t('cash.left')}</span><b>{k.money(leftToPay)}</b></div>
               </div>
             </>
           )}
@@ -301,9 +302,19 @@ export function Success() {
   useEffect(() => {
     if (!prints.length) return;
     const off = k.hw.on('print', (p) => setPrint((v) => ({ ...v, done: p.done })));
-    const photos = prints.map((i) => k.byKey.get(i.key)).filter((p): p is NonNullable<typeof p> => !!p);
-    void k.hw.print(photos, k.cfg.print).then((ok) => setPrint((v) => ({ ...v, ok })));
-    return off;
+    const photos = o?.photos ?? prints.map((i) => k.byKey.get(i.key)).filter((p): p is NonNullable<typeof p> => !!p);
+    let active = true;
+    k.setBusy(true);
+    void (async () => {
+      let ok = false;
+      try { ok = photos.length === prints.length && await k.hw.print(photos, k.cfg.print); }
+      catch { /* Der Hinweis erscheint auch bei einem Fehler der Gerätebrücke. */ }
+      if (ok && o?.method === 'online_pickup') {
+        k.hw.sale(saleRecord(o, o.items.map((item, i) => ({ item, photo: photos[i] })), k.pricing.unit, null));
+      }
+      if (active) { setPrint((v) => ({ ...v, ok })); k.setBusy(false); }
+    })();
+    return () => { active = false; off(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -315,25 +326,30 @@ export function Success() {
 
   if (!o) return null;
   // Faellt der Drucker aus, bekommt der Gast seine Fotos digital.
-  const downloadItems = print.ok === false ? o.items : digital;
-  const first = k.byKey.get(o.items[0]?.key ?? '');
+  const downloadItems = print.ok === false && o.method !== 'online_pickup' ? o.items : digital;
   return (
     <div className="screen success">
-      {k.tier === 'high' && <div className="confetti" aria-hidden="true">{Array.from({ length: 28 }, (_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 7) * 0.12}s` }} />)}</div>}
       <div className="success-head">
         <span className="success-check"><Icon name="check" /></span>
         <div>
-          <h1 className="title">{t('success.title')}</h1>
-          <p className="sub">{t('success.sub')}</p>
+          <h1 className="title">{t(o.method === 'online_pickup' ? 'success.pickup' : 'success.title')}</h1>
           {o.change > 0 && <p className="pay-lead ok"><Icon name="coins" />{t('success.change', { x: k.money(o.change) })}</p>}
         </div>
       </div>
       <div className="success-cards">
         {prints.length > 0 && (
           <div className={`s-card print ${print.ok === false ? 'bad' : ''}`}>
-            {first && <img src={photoFull(first)} alt="" className={print.ok ? 'printed' : 'printing'} />}
+            <svg className="print-art" viewBox="0 0 120 95" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M36 29V8h48v21M28 51h64" />
+              <rect x="14" y="29" width="92" height="34" rx="7" />
+              <path d="M94 40h3" />
+              <g className={print.ok === null ? 'print-sheet printing' : 'print-sheet'}>
+                <path d="M36 52h48v33H36zM46 76l9-10 7 7 5-6 9 9" />
+                <circle cx="69" cy="61" r="1.5" />
+              </g>
+            </svg>
             <div>
-              <b>{print.ok === null ? t('success.printing') : print.ok ? t('success.printed') : t('success.print_error')}</b>
+              <b>{print.ok === null ? t('success.printing') : print.ok ? t('success.printed') : t(o.method === 'online_pickup' ? 'success.pickup_error' : 'success.print_error')}</b>
               {print.ok === null && <div className="bar"><i style={{ width: `${Math.round(((print.done + 0.5) / prints.length) * 100)}%` }} /></div>}
             </div>
           </div>
@@ -348,7 +364,7 @@ export function Success() {
       {prints.length > 0 && print.ok !== false && <DeviceArrow pos={k.cfg.devices.printer} label={t('success.print_where')} icon="printer" />}
       <Bottom back={false}>
         <span className="muted">{t('success.back', { s: left })}</span>
-        <button className="btn btn-primary btn-xl" onClick={k.reset}>{t('common.done')}<Icon name="check" /></button>
+        <button className="btn btn-primary btn-xl" disabled={print.ok === null} onClick={k.reset}>{t('common.done')}<Icon name="check" /></button>
       </Bottom>
     </div>
   );

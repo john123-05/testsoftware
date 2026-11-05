@@ -25,6 +25,8 @@ namespace Liftpictures.Display.Kiosk
         public string PrintCountFile;
         public string SoldDir;
         public string CoinStatsFile;
+        public string PickupMachineId;
+        public string PickupDeviceToken;
 
         public string CardExe = @"c:\liftpic\terminal\easyzvt.exe";
         public string CardWorkDir;
@@ -63,6 +65,10 @@ namespace Liftpictures.Display.Kiosk
             c.PrintCountFile = Json.Str(j, "print_count_file");
             c.SoldDir = Json.Str(j, "sold_dir");
             c.CoinStatsFile = Json.Str(j, "coin_stats_file");
+
+            var pickup = Json.Get(j, "pickup");
+            c.PickupMachineId = Json.Str(pickup, "machine_id");
+            c.PickupDeviceToken = Json.Str(pickup, "device_token");
 
             var card = Json.Get(j, "card");
             c.CardExe = Json.Str(card, "exe", c.CardExe);

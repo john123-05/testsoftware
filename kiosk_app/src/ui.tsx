@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import QRCode from 'qrcode';
 import { LANGS, type Pos } from './config';
-import { BUY_SCREENS, PAY_SCREENS, useKiosk } from './store';
+import { PAY_SCREENS, useKiosk } from './store';
 
 const ICONS = {
   search: '<circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.6-4.6"/>',
@@ -14,6 +14,8 @@ const ICONS = {
   card: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h4"/>',
   coins: '<circle cx="9" cy="9" r="6"/><path d="M15.6 9.2a6 6 0 1 1-6.4 6.4"/><path d="M8 7.2h1.5V11"/>',
   printer: '<path d="M6.5 9V3.5h11V9"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6.5 14h11v6.5h-11z"/>',
+  delivery: '<path d="M2 6h13v11H2zM15 10h4l3 3v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
+  combo: '<path d="M14 3H4v14h10M7 7h4m-4 4h3"/><rect x="13" y="7" width="7" height="14" rx="2"/><path d="M16 18h1"/>',
   download: '<path d="M12 3.5v11m-4.5-4.5L12 14.5 16.5 10M4 20.5h16"/>',
   check: '<path d="m5 12.5 4.5 4.5L19.5 7"/>',
   x: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
@@ -48,8 +50,9 @@ export function QR({ value, size = '12rem' }: { value: string; size?: string }) 
   const [svg, setSvg] = useState('');
   useEffect(() => {
     let alive = true;
+    if (!value) { setSvg(''); return; }
     void QRCode.toString(value, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0b1220', light: '#ffffff' } })
-      .then((s) => { if (alive) setSvg(s); });
+      .then((s) => { if (alive) setSvg(s); }).catch(() => { if (alive) setSvg(''); });
     return () => { alive = false; };
   }, [value]);
   return <div className="qr" style={{ width: size, height: size }} dangerouslySetInnerHTML={{ __html: svg }} />;
@@ -70,35 +73,16 @@ export function Logo({ admin = false }: { admin?: boolean }) {
   );
 }
 
-function Stepper() {
-  const k = useKiosk();
-  const steps = ['photo', ...(k.formats.length > 1 && !k.cfg.express ? ['format'] : []), 'pay', 'done'];
-  const at = k.screen === 'success' ? 'done' : k.screen === 'products' ? 'format' : BUY_SCREENS.includes(k.screen) || (k.screen === 'voucher' && k.cart.length) ? 'pay' : 'photo';
-  const idx = steps.indexOf(at);
-  return (
-    <ol className="steps" aria-label="Progress">
-      {steps.map((s, i) => (
-        <li key={s} className={i < idx ? 'done' : i === idx ? 'on' : ''}>
-          <span className="step-dot">{i < idx ? <Icon name="check" /> : i + 1}</span>
-          <span className="step-label">{k.t(`step.${s}`)}</span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
 export function TopBar() {
   const k = useKiosk();
-  const inFlow = k.cart.length > 0 || BUY_SCREENS.includes(k.screen) || k.screen === 'success';
   const lang = LANGS.find((l) => l.id === k.lang);
   const showCart = k.cart.length > 0 && !['cart', 'method', 'success', ...PAY_SCREENS].includes(k.screen);
   return (
     <header className="top">
       <Logo admin />
-      {inFlow && <Stepper />}
       <div className="top-right">
         {showCart && (
-          <button className="cart-pill" onClick={() => k.go('cart')}>
+          <button className="cart-pill" disabled={k.busy} onClick={() => k.go('cart')}>
             <Icon name="cart" /><b>{k.cart.length}</b><span>{k.money(k.pricing.total)}</span>
           </button>
         )}
@@ -108,7 +92,7 @@ export function TopBar() {
           </button>
         )}
         <button className="icon-btn" onClick={() => k.setOverlay('help')}><Icon name="help" /><span>{k.t('common.help')}</span></button>
-        {k.screen !== 'home' && k.screen !== 'success' && (
+        {k.screen !== 'success' && (
           <button className="icon-btn" onClick={k.restart} disabled={k.busy}><Icon name="home" /><span>{k.t('common.start_over')}</span></button>
         )}
       </div>

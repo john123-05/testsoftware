@@ -109,6 +109,25 @@ def test_ohne_lizenz_keine_fotos(tmp_path: Path):
     assert d["licensed"] is False and d["reason"] == "expired" and d["photos"] == []
 
 
+def test_werbetafel_scan_und_lieferung_werden_weitergereicht(tmp_path: Path):
+    ziel = tmp_path / "kiosk-data"
+    k = Kiosk(ziel)
+    config = {
+        "attract": {"enabled": False, "messages": {"de": ["Dein Foto"]}, "slide_seconds": 8},
+        "find": {"scan": True},
+        "links": {"print_home": "https://example.com/shop?code={code}"},
+    }
+    args = dict(raw_dir=tmp_path / "photos", viewer_xml=None, customer_code="4761",
+                positionen="3,4,5,6", park_slug="p", machine_id="kiosk-1",
+                device_token="test-device-token", konfig=config)
+    k.schreibe(**args, lizenziert=True)
+    assert _daten(ziel)["config"] == config
+    assert "test-device-token" not in (ziel / "data.js").read_text()
+    assert json.loads((ziel / "host.json").read_text())["pickup"]["machine_id"] == "kiosk-1"
+    k.schreibe(**args, lizenziert=False)
+    assert "pickup" not in json.loads((ziel / "host.json").read_text())
+
+
 def test_konfig_nur_bekannte_bereiche():
     assert lies_konfig("kaputt") == {}
     assert lies_konfig("[1,2]") == {}

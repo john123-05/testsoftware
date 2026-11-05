@@ -33,8 +33,8 @@ export type KioskConfig = {
   /** Hochbetrieb: Format-Auswahl ueberspringen, Standardformat direkt in den Warenkorb. */
   express: boolean;
   theme: { preset: string; brand: string | null; accent: string | null; logo: string | null; background: string | null };
-  attract: { headline: string; subline: string; phone_qr: boolean; show_count: boolean };
-  find: { just_rode_minutes: number; time: boolean; number: boolean; face: boolean; phone: boolean };
+  attract: { enabled: boolean; after_seconds: number; slide_seconds: number; messages: Record<Lang, string[]>; show_photos: boolean; headline: string; subline: string; phone_qr: boolean; show_count: boolean };
+  find: { just_rode_minutes: number; time: boolean; number: boolean; face: boolean; phone: boolean; scan: boolean };
   products: Record<Format, { enabled: boolean; price: number }>;
   packages: Package[];
   payments: Record<PayMethod, boolean>;
@@ -42,7 +42,7 @@ export type KioskConfig = {
   /** Wo am Automaten das Geraet sitzt - dorthin zeigt der Pfeil auf dem Bildschirm. */
   devices: { card: Pos; cash: Pos; printer: Pos };
   /** {code} = erster Code, {codes} = alle Codes (Komma), {time} = HH:MM */
-  links: { phone_search: string; phone_pay: string; download: string };
+  links: { phone_search: string; phone_pay: string; download: string; print_home: string };
   /** Was auf den Ausdruck kommt (Lage und Groesse stehen in der Settings.xml des Automaten). */
   print: { qr: boolean; date: boolean; logo: boolean };
   /** Gutscheine/Tagespass: Codes werden offline geprueft (Pruefsumme mit diesem Schluessel, aus dem CRM). */
@@ -61,9 +61,20 @@ export const DEFAULT_CONFIG: KioskConfig = {
   rotation: 0,
   performance: 'auto',
   express: false,
-  theme: { preset: 'alpine', brand: null, accent: null, logo: null, background: null },
-  attract: { headline: '', subline: '', phone_qr: true, show_count: true },
-  find: { just_rode_minutes: 10, time: true, number: true, face: true, phone: true },
+  theme: { preset: 'clean', brand: null, accent: null, logo: null, background: null },
+  attract: {
+    enabled: true, after_seconds: 45, slide_seconds: 5, show_photos: true,
+    headline: '', subline: '', phone_qr: false, show_count: false,
+    messages: {
+      de: ['Dein Foto von der Fahrt', 'Hier kaufen und mitnehmen', 'Jetzt drucken lassen'],
+      en: ['Your ride photo', 'Buy it here', 'Printed in seconds'],
+      fr: ['Ta photo de l’aventure', 'Achète-la ici', 'Imprimée en quelques secondes'],
+      es: ['Tu foto de la aventura', 'Cómprala aquí', 'Imprime en segundos'],
+      it: ['La foto della tua corsa', 'Comprala qui', 'Stampata in pochi secondi'],
+      nl: ['Jouw ritfoto', 'Koop je foto hier', 'Binnen enkele seconden geprint'],
+    },
+  },
+  find: { just_rode_minutes: 10, time: true, number: true, face: true, phone: true, scan: false },
   products: {
     print: { enabled: true, price: 600 },
     digital: { enabled: true, price: 500 },
@@ -79,6 +90,7 @@ export const DEFAULT_CONFIG: KioskConfig = {
   links: {
     phone_search: 'https://liftpictures-fotos.de/demo?t={time}',
     phone_pay: 'https://liftpictures-fotos.de/demo/shop?codes={codes}',
+    print_home: '',
     download: 'https://liftpictures-fotos.de/demo/claim?code={code}',
   },
   print: { qr: true, date: true, logo: true },
@@ -127,18 +139,29 @@ export type Theme = {
 };
 
 export const THEMES: Record<string, Theme> = {
-  alpine: { label: 'Alpine', scheme: 'dark', bg: '#06182b', bg2: '#0e3456', surface: 'rgba(255,255,255,.06)', surface2: 'rgba(255,255,255,.11)', line: 'rgba(255,255,255,.12)', text: '#f4f8fc', muted: '#9fb3c8', brand: '#ff6b2c', brandInk: '#ffffff', accent: '#7dd3fc', accentInk: '#06263f' },
-  night: { label: 'Night', scheme: 'dark', bg: '#090c14', bg2: '#161d33', surface: 'rgba(255,255,255,.05)', surface2: 'rgba(255,255,255,.1)', line: 'rgba(255,255,255,.1)', text: '#f5f7fb', muted: '#97a3b6', brand: '#3d7bff', brandInk: '#ffffff', accent: '#ffc247', accentInk: '#1a1200' },
-  sunset: { label: 'Sunset', scheme: 'dark', bg: '#1a0a1f', bg2: '#4a1530', surface: 'rgba(255,255,255,.06)', surface2: 'rgba(255,255,255,.11)', line: 'rgba(255,255,255,.12)', text: '#fff6f2', muted: '#d1a9b5', brand: '#ff5e57', brandInk: '#ffffff', accent: '#ffd166', accentInk: '#2a1a00' },
-  clean: { label: 'Clean', scheme: 'light', bg: '#eef2f7', bg2: '#ffffff', surface: '#ffffff', surface2: '#f1f4f8', line: '#dde3ec', text: '#0f1b2d', muted: '#5b6b80', brand: '#d9480f', brandInk: '#ffffff', accent: '#0e7490', accentInk: '#ffffff' },
+  clean: { label: 'Clean', scheme: 'light', bg: '#f6f7f9', bg2: '#ffffff', surface: '#ffffff', surface2: '#edf0ef', line: '#ccd3d0', text: '#111111', muted: '#4e5955', brand: '#14624d', brandInk: '#ffffff', accent: '#14624d', accentInk: '#ffffff' },
+  dark: { label: 'Dark', scheme: 'dark', bg: '#171a19', bg2: '#212524', surface: '#212524', surface2: '#303734', line: '#57655f', text: '#ffffff', muted: '#d4ded9', brand: '#8ee0ba', brandInk: '#111111', accent: '#8ee0ba', accentInk: '#111111' },
 };
+
+export function themePreset(id: string): string {
+  if (['alpine', 'night', 'sunset'].includes(id)) return 'dark';
+  return Object.prototype.hasOwnProperty.call(THEMES, id) ? id : 'clean';
+}
+
+export function printHomeLink(template: string, code?: string): string {
+  if (!code || !template.includes('{code}')) return '';
+  try {
+    const url = new URL(template.split('{code}').join(encodeURIComponent(code)));
+    return url.protocol === 'https:' ? url.href : '';
+  } catch { return ''; }
+}
 
 // Nur bekannte Schluessel uebernehmen, Typen pruefen - eine kaputte Einstellung darf den Automaten nie stoppen.
 function merge<T>(base: T, raw: unknown): T {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base;
   const out = { ...(base as Record<string, unknown>) };
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-    if (!(k in out)) continue;
+    if (!Object.prototype.hasOwnProperty.call(out, k)) continue;
     const b = out[k];
     if (b && typeof b === 'object' && !Array.isArray(b)) out[k] = merge(b, v);
     else if (Array.isArray(b)) { if (Array.isArray(v)) out[k] = v; }
@@ -152,11 +175,18 @@ function merge<T>(base: T, raw: unknown): T {
 export function mergeConfig(...layers: unknown[]): KioskConfig {
   const c = layers.reduce<KioskConfig>((acc, raw) => merge(acc, raw), DEFAULT_CONFIG);
   const langs = c.languages.filter((l) => LANGS.some((x) => x.id === l));
+  const attract = { ...c.attract, messages: { ...c.attract.messages } };
+  for (const { id } of LANGS) {
+    const messages = attract.messages[id].filter((m) => typeof m === 'string' && m.trim()).slice(0, 30).map((m) => m.trim().slice(0, 500));
+    attract.messages[id] = messages.length ? messages : DEFAULT_CONFIG.attract.messages[id];
+  }
+  const hasAttractDelay = layers.some((layer) => typeof (layer as { attract?: { after_seconds?: unknown } } | null)?.attract?.after_seconds === 'number');
   return {
     ...c,
+    attract: { ...attract, after_seconds: Math.max(15, Math.min(300, hasAttractDelay ? attract.after_seconds : c.idle_seconds)), slide_seconds: Math.max(2, Math.min(60, attract.slide_seconds)) },
     languages: langs.length ? langs : DEFAULT_CONFIG.languages,
     language: LANGS.some((x) => x.id === c.language) ? c.language : 'en',
-    theme: { ...c.theme, preset: THEMES[c.theme.preset] ? c.theme.preset : 'alpine' },
+    theme: { ...c.theme, preset: themePreset(c.theme.preset) },
     idle_seconds: Math.max(15, Math.min(300, c.idle_seconds)),
     help_seconds: Math.max(8, Math.min(120, c.help_seconds)),
     find: { ...c.find, just_rode_minutes: Math.max(2, Math.min(60, c.find.just_rode_minutes)) },

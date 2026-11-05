@@ -7,13 +7,15 @@
 // Geraete-Bruecke: die App schickt {type:'hw', id, method, args}, hier wird geantwortet mit
 // {type:'hw-result', id, result}; Ereignisse gehen als {type:'hw-event', event, value} zurueck.
 //   status | configure | cashEnable | cashDisable | cashPayout | cardPay | cardCancel |
-//   print | faceSearch | sale | exit
+//   print | pickup | faceSearch | sale | exit
 // Welche Geraete gebraucht werden, sagt die App (configure) aus ihren Einstellungen (Version).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -26,6 +28,11 @@ namespace Liftpictures.Display.Kiosk
         public const string AppHost = "kiosk.liftpictures";
         public const string MediaHost = "kiosk-media.liftpictures";
         private const string MediaBase = "https://" + MediaHost + "/";
+
+        private static readonly HttpClient PickupClient = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+        {
+            Timeout = TimeSpan.FromSeconds(15),
+        };
 
         private readonly DisplayForm _form;
         private readonly CoreWebView2 _core;
@@ -95,7 +102,7 @@ namespace Liftpictures.Display.Kiosk
                     !u.StartsWith("about:", StringComparison.OrdinalIgnoreCase))
                     e.Cancel = true;
             };
-            // Kamera fuer die Gesichtssuche: nur fuer die eigene App, ohne Rueckfrage.
+            // Kamera fuer Gesichtssuche und QR-Scan: nur fuer die eigene App, ohne Rueckfrage.
             _core.PermissionRequested += (o, e) =>
             {
                 bool own = (e.Uri ?? "").StartsWith("https://" + AppHost + "/", StringComparison.OrdinalIgnoreCase);
@@ -267,6 +274,8 @@ namespace Liftpictures.Display.Kiosk
                 case "cardCancel":
                     _card.Cancel();
                     return true;
+                case "pickup":
+                    return await PickupAsync(Arg(args, 0), Arg(args, 1));
                 case "print":
                     var jobs = Json.Arr(Arg(args, 0)) ?? new object[0];
                     PushStatus("printing");
@@ -277,6 +286,8 @@ namespace Liftpictures.Display.Kiosk
                     PushStatus();
                     return ok;
                 case "faceSearch":
+                    if (!_wantFace) return new string[0];
+                    _face.Start();
                     var files = (Json.Arr(Arg(args, 1)) ?? new object[0]).Select(o => Convert.ToString(o, CultureInfo.InvariantCulture)).ToArray();
                     return await _face.SearchAsync(Convert.ToString(Arg(args, 0), CultureInfo.InvariantCulture), files);
                 case "sale":
@@ -290,6 +301,39 @@ namespace Liftpictures.Display.Kiosk
                 default:
                     return null;
             }
+        }
+
+        private async Task<object> PickupAsync(object data, object files)
+        {
+            var c = Config();
+            if (!_wantPrinter || string.IsNullOrEmpty(c.PickupMachineId) || string.IsNullOrEmpty(c.PickupDeviceToken))
+                return new Dictionary<string, object> { ["status"] = "unavailable" };
+
+            string phase = Json.Str(data, "phase");
+            if (phase == "claim")
+            {
+                if (_printer.State() != "ready") return new Dictionary<string, object> { ["status"] = "printer" };
+                var names = Json.Arr(files) ?? new object[0];
+                if (names.Length == 0 || names.Any(name => !(name is string file) || !Media.SafeName(file) ||
+                    !File.Exists(Path.Combine(c.PhotoDir, file))))
+                    return new Dictionary<string, object> { ["status"] = "missing" };
+            }
+
+            const string url = "https://kvpcwlcfgmsmarjtwpsx.supabase.co/functions/v1/online-photo-sales/kiosk-pickup";
+            using (var request = new HttpRequestMessage(HttpMethod.Post, url))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", c.PickupDeviceToken);
+                request.Headers.Add("x-machine-id", c.PickupMachineId);
+                request.Content = new StringContent(Json.Write(data), Encoding.UTF8, "application/json");
+                try
+                {
+                    using (var response = await PickupClient.SendAsync(request))
+                        return Json.Parse(await response.Content.ReadAsStringAsync());
+                }
+                catch (HttpRequestException) { }
+                catch (TaskCanceledException) { }
+            }
+            return new Dictionary<string, object> { ["status"] = "offline" };
         }
 
         private async Task Configure(object want)
@@ -306,7 +350,6 @@ namespace Liftpictures.Display.Kiosk
                 if (!open) Log.Write("kiosk: cash not available: " + _coins.LastError);
             }
             if (_coins != null) _coins.StatsFile = c.CoinStatsFile;
-            if (_wantFace) _face.Start();
             if (_wantPrinter) _printerState = await Task.Run(() => _printer.State());
             PushStatus();
         }
@@ -319,7 +362,7 @@ namespace Liftpictures.Display.Kiosk
                 ["cash"] = _wantCash && _coins != null && _coins.IsOpen,
                 ["change"] = _wantCash && _coins != null && _coins.IsOpen && _coins.HasChange,
                 ["printer"] = _wantPrinter ? (printer ?? _printerState) : "offline",
-                ["face"] = _wantFace && _face.Available,
+                ["face"] = _wantFace && _face.Installed,
                 ["camera"] = _wantFace,
             };
         }

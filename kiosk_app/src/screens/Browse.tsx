@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react';
 import { photoFull, photoSrc, type Photo } from '../data';
 import { useKiosk } from '../store';
-import { Bottom, Icon, QR } from '../ui';
+import { Bottom, Icon } from '../ui';
 
-const BUCKET = 300; // 5 Minuten
+const BUCKET = 900; // Viertelstunde
 
 function groupPhotos(list: Photo[]) {
   const groups: { start: number; photos: Photo[] }[] = [];
@@ -15,38 +15,6 @@ function groupPhotos(list: Photo[]) {
     if (last && last.start === start) last.photos.push(p); else groups.push({ start, photos: [p] });
   }
   return groups;
-}
-
-function Coach({ timeline }: { timeline: boolean }) {
-  const k = useKiosk();
-  const [now, setNow] = useState(Date.now());
-  const [dismissed, setDismissed] = useState(0);
-  useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(id); }, []);
-  if (!k.searchingSince || k.overlay) return null;
-  const s = (now - k.searchingSince) / 1000;
-  const h = k.cfg.help_seconds;
-  const level = s >= h * 2.2 ? 2 : s >= h ? 1 : 0;
-  if (level <= dismissed) return null;
-  if (level === 1 && timeline) {
-    return (
-      <div className="coach coach-tip" role="status">
-        <Icon name="sparkle" /><span>{k.t('coach.time')}</span>
-        <button onClick={() => setDismissed(1)} aria-label={k.t('common.close')}><Icon name="x" /></button>
-      </div>
-    );
-  }
-  const face = k.cfg.find.face && k.hwStatus.face;
-  if (!k.cfg.find.phone && !face) return null;
-  return (
-    <div className="coach coach-card" role="status">
-      <button className="coach-x" onClick={() => setDismissed(2)} aria-label={k.t('common.close')}><Icon name="x" /></button>
-      <b>{k.t('coach.stuck')}</b>
-      {k.cfg.find.phone && (
-        <div className="coach-qr"><QR value={k.link(k.cfg.links.phone_search, [], k.search.time)} size="7.4rem" /><span>{k.t('coach.stuck_sub')}</span></div>
-      )}
-      {face && <button className="btn btn-ghost" onClick={() => k.go('face')}><Icon name="scan" />{k.t('coach.face')}</button>}
-    </div>
-  );
 }
 
 export function Gallery() {
@@ -62,43 +30,25 @@ export function Gallery() {
   }, [search, recent, k.today, k.photos]);
   const groups = useMemo(() => groupPhotos(list), [list]);
   const target = search.mode === 'time' ? search.time ?? null : null;
-  const targetGroup = useMemo(() => {
-    if (target == null || !groups.length) return null;
-    return groups.reduce((best, g) => (Math.abs(g.start + 150 - target) < Math.abs(best.start + 150 - target) ? g : best)).start;
-  }, [groups, target]);
+  const targetGroup = target == null ? null : Math.floor(target / BUCKET) * BUCKET;
   const [cols, setCols] = useState(() => (cfg.express ? (k.portrait ? 2 : 4) : k.portrait ? 3 : 5));
   const scroller = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState<number | null>(null);
-
-  // Zeitleiste: Viertelstunden mit Fotos (aelteste links).
-  const showTimeline = search.mode === 'time' || search.mode === 'all';
-  const quarters = useMemo(() => {
-    if (!showTimeline) return [];
-    const m = new Map<number, number>();
-    for (const p of list) { const q = Math.floor(p.ts / 900) * 900; m.set(q, (m.get(q) ?? 0) + 1); }
-    return [...m.entries()].sort((a, b) => a[0] - b[0]);
-  }, [list, showTimeline]);
+  const hours = useMemo(() => {
+    const byHour = new Map<number, number>();
+    for (const photo of k.today) {
+      const d = new Date(photo.ts * 1000);
+      d.setMinutes(0, 0, 0);
+      if (!byHour.has(d.getTime())) byHour.set(d.getTime(), photo.ts);
+    }
+    return [...byHour.entries()];
+  }, [k.today]);
 
   useEffect(() => {
-    if (targetGroup == null) return;
-    const el = document.getElementById(`g${targetGroup}`);
-    if (el && scroller.current) scroller.current.scrollTop = Math.max(0, el.offsetTop - 8);
-  }, [targetGroup]);
-
-  const onScroll = () => {
     const box = scroller.current;
-    if (!box || !showTimeline) return;
-    const top = box.scrollTop + 40;
-    for (const g of groups) {
-      const el = document.getElementById(`g${g.start}`);
-      if (el && el.offsetTop + el.offsetHeight > top) { setActive(Math.floor(g.start / 900) * 900); break; }
-    }
-  };
-  const jump = (q: number) => {
-    const g = groups.filter((x) => Math.floor(x.start / 900) * 900 === q).pop();
-    const el = g && document.getElementById(`g${g.start}`);
-    if (el && scroller.current) scroller.current.scrollTo({ top: el.offsetTop - 8, behavior: k.tier === 'low' ? 'auto' : 'smooth' });
-  };
+    if (!box) return;
+    const group = targetGroup == null ? null : document.getElementById(`g${targetGroup}`);
+    box.scrollTop = group?.offsetTop ?? 0;
+  }, [targetGroup, search.mode]);
 
   // Zwei Finger: Fotos groesser/kleiner (wie auf dem Handy).
   const pts = useRef(new Map<number, { x: number; y: number }>());
@@ -123,32 +73,27 @@ export function Gallery() {
 
   return (
     <div className="screen gallery">
+      <div className="gallery-filters">
+        <button className="btn btn-ghost" aria-pressed={search.mode === 'recent'} onClick={() => k.find({ mode: 'recent' })}>{t('home.just_rode')}</button>
+        <button className="btn btn-ghost" aria-pressed={search.mode === 'all'} onClick={() => k.find({ mode: 'all' })}>{t('gallery.show_all')}</button>
+        {cfg.find.number && <button className="btn btn-ghost" onClick={() => k.go('number')}>{t('home.number')}</button>}
+        {cfg.find.face && k.hwStatus.face && <button className="btn btn-ghost" onClick={() => k.go('face')}>{t('home.face')}</button>}
+        {cfg.find.scan && <button className="btn btn-ghost" onClick={() => k.go('scan')}><Icon name="scan" />{t('scan.title')}</button>}
+        {cfg.payments.voucher && !cfg.find.scan && <button className="btn btn-ghost" onClick={() => k.go('voucher')}>{t('home.voucher')}</button>}
+        {k.voucher && <span className="chip chip-ok">{k.voucher.kind === 'day' ? t('voucher.day') : t('voucher.photos', { n: k.voucher.photos })}</span>}
+      </div>
+      {cfg.find.time && hours.length > 0 && <div className="gallery-hours" aria-label={t('home.time')}>
+        {hours.map(([hour, ts]) => <button className="btn btn-ghost" key={hour} aria-pressed={target === ts} onClick={() => k.find({ mode: 'time', time: ts })}>{k.time(hour / 1000)}</button>)}
+      </div>}
       <div className="gal-head">
-        <div className="gal-title">
-          <h1 className="title sm">{title}</h1>
-          <p className="sub">{fallback ? t('gallery.fallback') : t('gallery.count', { n: list.length })}</p>
-        </div>
-        <div className="gal-tools">
-          {(search.mode === 'recent' || search.mode === 'face') && (
-            <button className="btn btn-ghost" onClick={() => k.find({ mode: 'all' }, true)}><Icon name="image" />{t('gallery.show_all')}</button>
-          )}
-          <div className="zoom-ctl" aria-label={t('gallery.size')}>
-            <button onClick={() => setCols((c) => Math.min(7, c + 1))} aria-label="−"><Icon name="minus" /></button>
-            <span>{t('gallery.size')}</span>
-            <button onClick={() => setCols((c) => Math.max(1, c - 1))} aria-label="+"><Icon name="plus" /></button>
-          </div>
+        <h1 className="title sm">{title}</h1>
+        {fallback && <p className="sub">{t('gallery.fallback')}</p>}
+        <div className="zoom-ctl" aria-label={t('gallery.size')}>
+          <button onClick={() => setCols((c) => Math.min(7, c + 1))} aria-label="−"><Icon name="minus" /></button>
+          <button onClick={() => setCols((c) => Math.max(1, c - 1))} aria-label="+"><Icon name="plus" /></button>
         </div>
       </div>
-      {showTimeline && quarters.length > 1 && (
-        <div className="timeline">
-          {quarters.map(([q, n]) => (
-            <button key={q} className={`tl-chip${active === q ? ' on' : ''}${target != null && Math.floor(target / 900) * 900 === q ? ' you' : ''}`} onClick={() => jump(q)}>
-              <b>{k.time(q)}</b><small>{n}</small>
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="gal-scroll" ref={scroller} onScroll={onScroll} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+      <div className="gal-scroll" ref={scroller} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         {groups.map((g) => (
           <section key={g.start} id={`g${g.start}`} className={`gal-group${g.start === targetGroup ? ' target' : ''}`}>
             <h4 className="gal-time">
@@ -170,12 +115,9 @@ export function Gallery() {
         ))}
         {!list.length && <div className="empty"><Icon name="image" />{t('gallery.empty')}</div>}
       </div>
-      <Coach timeline={showTimeline && quarters.length > 1} />
-      <Bottom onBack={() => k.backTo('home')}>
-        {k.cart.length > 0 && (
+      {k.cart.length > 0 && <Bottom back={false}>
           <button className="btn btn-primary btn-xl" onClick={() => k.go('cart')}><Icon name="cart" />{k.t('detail.to_cart')} · {k.money(k.pricing.total)}</button>
-        )}
-      </Bottom>
+      </Bottom>}
     </div>
   );
 }
@@ -257,8 +199,8 @@ export function Detail() {
       <div className="detail-body">
         <div className="detail-stage">
           <ZoomImage key={p.key} src={photoFull(p)} onSwipe={nav} />
-          {prev && <button className="nav-btn prev" onClick={() => nav(-1)} aria-label="previous"><Icon name="left" /></button>}
-          {next && <button className="nav-btn next" onClick={() => nav(1)} aria-label="next"><Icon name="right" /></button>}
+          {prev && <button className="nav-btn prev" onClick={() => nav(-1)} aria-label={t('common.back')}><Icon name="left" /></button>}
+          {next && <button className="nav-btn next" onClick={() => nav(1)} aria-label={t('detail.next')}><Icon name="right" /></button>}
           <span className="detail-hint"><Icon name="search" />{t('detail.zoom')}</span>
         </div>
         <aside className="detail-side">

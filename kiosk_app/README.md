@@ -10,9 +10,12 @@ npm run dev        # http://localhost:5193 (Demo + Simulator rechts)
 npm run build      # dist/ fuer Liftpictures Display
 ```
 
-Demo-Adresse mit Parametern: `?screen=gallery|cart|cash|…` (direkt springen), `&frame=portrait|landscape`,
-`&edition=complete|card_cash|card|cash|digital`, `&theme=alpine|night|sunset|clean`, `&tier=low|mid|high`,
+Demo-Adresse mit Parametern: `?screen=attract|gallery|scan|print_home|cart|cash|…` (direkt springen), `&frame=portrait|landscape`,
+`&edition=complete|card_cash|card|cash|digital`, `&theme=clean|dark`, `&tier=low|mid|high`,
 `&lang=de`, `&nopanel` (ohne Simulator).
+
+Für echte Beispielfotos im Simulator JPEG-Dateien unter `kiosk_app/public/demo/` ablegen
+und den Simulator neu starten. Ohne Beispiele zeigt die Galerie neutrale Platzhalter.
 
 ## Aufbau
 - `config.ts` – Einstellungen, **Versionen** (Komplett, Karte + Bargeld, Nur Karte, Nur Bargeld, Nur digital), Farbwelten.
@@ -21,7 +24,7 @@ Demo-Adresse mit Parametern: `?screen=gallery|cart|cash|…` (direkt springen), 
   `SaleRecord` an das Programm (`hw.sale`).
 - `hardware.ts` – Geräte: `SimHardware` (Demo) und `HostHardware` (Nachrichten an Liftpictures Display:
   `{type:'hw', id, method, args}` → `{type:'hw-result', id, result}`, Ereignisse `{type:'hw-event', event, value}`).
-  Methoden: status, configure, cashEnable/Disable/Payout, cardPay/Cancel, print, faceSearch, sale, exit.
+  Methoden: status, configure, cashEnable/Disable/Payout, cardPay/Cancel, print, pickup, faceSearch, sale, exit.
 - `data.ts` – Fotos/Einstellungen: der Agent schreibt `C:\liftpic\kiosk-data\data.js` →
   `window.__kiosk({licensed, reason, valid_until, base, config, photos})`; Fotos kommen als
   `https://kiosk-media.liftpictures/thumb|photo/<datei>` (480/2048 px, das Programm verkleinert und speichert zwischen).
@@ -51,3 +54,14 @@ Demo-Adresse mit Parametern: `?screen=gallery|cart|cash|…` (direkt springen), 
 3. ✅ Agent: `data.js`, `host.json`, Lizenz, Verkäufe im Herzschlag (0.7.0).
 4. ✅ CRM (Freischaltung + Baukasten mit Live-Vorschau, Gutscheine) und Dashboard (Kunde ändert Freigegebenes).
 5. ⏳ Bar/Karte an Parks mit Online-Shop: Download-QR braucht eine signierte Freischaltung im Shop (heute: Handy-Kauf).
+
+## Fotoabholung und Lieferung
+
+- Im CRM pro Automat **Code scannen** freigeben. Der Scanner akzeptiert Gutscheine,
+  Bildcodes und QR-Codes für Online-Abholungen. Für Abholungen braucht der gepaarte
+  Automat Internet, einen Drucker und die Originale im aktuellen Fotobestand.
+- Die Claim-Seite zeigt den Abholcode für berechtigte Gäste, sobald der Park einen
+  passenden Automaten anbietet. Die Datenbank reserviert den Code vor dem Druck.
+  Scheitert der Druck nach der Reservierung, prüft das Personal den Auftrag.
+- **Nach Hause liefern** erscheint bei einer HTTPS-Adresse mit `{code}` im CRM.
+  Der QR-Code führt zum Shop auf dem Handy. Der Plose-Shop ist im Testbetrieb.

@@ -1418,6 +1418,7 @@ class LiftpicService:
                 sold_dir=self.settings.qrcode_dir,
                 coin_stats_file=self.settings.coin_stats_file,
                 machine_id=self.settings.machine_id,
+                device_token=self.settings.device_token,
             )
         except Exception as exc:
             if jetzt - self._kiosk_fehler > 600:

@@ -177,7 +177,7 @@ class Kiosk:
                  gueltig_bis: str = "", konfig: str | dict | None = None, qr_basis: str = "",
                  logo_url: str = "", statistic_file: Path | None = None,
                  print_count_file: Path | None = None, sold_dir: Path | None = None,
-                 coin_stats_file: Path | None = None, machine_id: str = "",
+                 coin_stats_file: Path | None = None, machine_id: str = "", device_token: str = "",
                  oeffnen=None, jetzt: float | None = None) -> bool:
         """Gibt zurueck, ob sich data.js geaendert hat."""
         jetzt = time.time() if jetzt is None else jetzt
@@ -185,11 +185,16 @@ class Kiosk:
         (self.ordner / "sales").mkdir(exist_ok=True)
 
         viewer = lies_alle(viewer_xml)
-        host = json.dumps(host_einstellungen(
+        einstellungen = lies_konfig(konfig)
+        host = host_einstellungen(
             raw_dir=raw_dir, viewer_xml=viewer_xml, viewer=viewer,
             statistic_file=statistic_file, print_count_file=print_count_file,
             sold_dir=sold_dir, coin_stats_file=coin_stats_file,
-        ), ensure_ascii=False, indent=2)
+        )
+        suche = einstellungen.get("find")
+        if lizenziert and device_token and isinstance(suche, dict) and suche.get("scan") is True:
+            host["pickup"] = {"machine_id": machine_id, "device_token": device_token}
+        host = json.dumps(host, ensure_ascii=False, indent=2)
         if host != self._host or not (self.ordner / "host.json").exists():
             _atomar(self.ordner / "host.json", host)
             self._host = host
@@ -238,7 +243,7 @@ class Kiosk:
         stand = {
             "licensed": lizenziert, "reason": grund or None,
             "valid_until": gueltig_bis or None, "machine_id": machine_id,
-            "base": basis, "config": lies_konfig(konfig), "photos": fotos,
+            "base": basis, "config": einstellungen, "photos": fotos,
         }
         signatur = json.dumps(stand, sort_keys=True)
         if signatur == self._signatur and (self.ordner / "data.js").exists():

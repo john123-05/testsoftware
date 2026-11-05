@@ -1,19 +1,19 @@
 // Ablauf des Verkaufsprogramms: welcher Bildschirm, Suche, Warenkorb, Zahlung, Bestellung.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { FORMATS, type Format, type KioskConfig, type Lang, type PayMethod, type Tier } from './config';
+import { FORMATS, LANGS, printHomeLink, type Format, type KioskConfig, type Lang, type PayMethod, type Tier } from './config';
 import { LOCALES, translate } from './i18n';
 import { priceCart, type Item, type Pricing } from './pricing';
 import type { Hardware, HwStatus, SaleRecord, Voucher } from './hardware';
 import { markUsed } from './vouchers';
 import { inDay, type Photo } from './data';
 
-export type Screen = 'attract' | 'home' | 'time' | 'gallery' | 'detail' | 'number' | 'face' | 'products' | 'cart' | 'method' | 'card' | 'cash' | 'phone' | 'voucher' | 'success';
+export type Screen = 'attract' | 'gallery' | 'scan' | 'print_home' | 'detail' | 'number' | 'face' | 'products' | 'cart' | 'method' | 'card' | 'cash' | 'phone' | 'voucher' | 'success';
 export type Overlay = 'help' | 'handoff' | 'idle' | 'admin' | 'lang' | null;
 export type Search = { mode: 'recent' | 'time' | 'face' | 'all'; time?: number; faceKeys?: string[] };
-export type Order = { items: Item[]; total: number; method: PayMethod | 'free'; change: number; ts: number };
+export type Order = { items: Item[]; total: number; method: PayMethod | 'free' | 'online_pickup'; photos?: Photo[]; change: number; ts: number };
 export type MethodOption = { id: PayMethod; screen: Screen; disabled: boolean; note?: string };
 
-export const BUY_SCREENS: Screen[] = ['products', 'cart', 'method', 'card', 'cash', 'phone'];
+export const BUY_SCREENS: Screen[] = ['print_home', 'products', 'cart', 'method', 'card', 'cash', 'phone'];
 export const PAY_SCREENS: Screen[] = ['card', 'cash', 'phone'];
 
 export type Kiosk = {
@@ -32,6 +32,7 @@ export type Kiosk = {
   voucher: Voucher | null; setVoucher: (v: Voucher | null) => void;
   credit: number; setCredit: (c: number) => void;
   order: Order | null; finish: (m: PayMethod | 'free', change?: number) => void;
+  finishPickup: (photos: Photo[]) => void;
   busy: boolean; setBusy: (b: boolean) => void;
   searchingSince: number;
   link: (template: string, codes: string[], time?: number) => string;
@@ -91,21 +92,24 @@ export function KioskProvider({ cfg, hw, tier, portrait, stageScale, photos, chi
 }) {
   const params = useMemo(() => new URLSearchParams(location.search), []);
   // Nur Demo: mit ?screen=... direkt auf einen Bildschirm springen (fuer Vorschau und Tests).
-  const dev = hw.mode === 'sim' ? (params.get('screen') as Screen | null) : null;
+  const requested = hw.mode === 'sim' ? params.get('screen') : null;
+  const dev = requested === 'home' || requested === 'time' ? 'gallery' :
+    ['attract', 'gallery', 'scan', 'print_home', 'detail', 'number', 'face', ...BUY_SCREENS, 'voucher', 'success'].find((s) => s === requested) as Screen | undefined;
+  const landing: Screen = cfg.attract.enabled ? 'attract' : 'gallery';
   const formats = useMemo(() => FORMATS.filter((f) => cfg.products[f].enabled), [cfg.products]);
-  const devCart: Item[] = dev && (BUY_SCREENS.includes(dev) || dev === 'success')
+  const devCart: Item[] = dev && ['cart', 'method', ...PAY_SCREENS, 'success'].includes(dev)
     ? photos.slice(1, 3).map((p, i) => ({ key: p.key, format: formats[(i + formats.length - 1) % formats.length] ?? 'digital' }))
     : [];
 
-  const [lang, setLang] = useState<Lang>((params.get('lang') as Lang) || cfg.language);
-  const [screen, setScreen] = useState<Screen>(dev || 'attract');
-  const [stack, setStack] = useState<Screen[]>(dev && dev !== 'attract' && dev !== 'home' ? ['home'] : []);
+  const [lang, setLang] = useState<Lang>(() => LANGS.find((l) => l.id === params.get('lang'))?.id ?? cfg.language);
+  const [screen, setScreen] = useState<Screen>(dev || landing);
+  const [stack, setStack] = useState<Screen[]>(dev && dev !== 'attract' && dev !== 'gallery' ? ['gallery'] : []);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [search, setSearch] = useState<Search>({ mode: dev === 'gallery' ? 'all' : 'recent' });
   const [detail, setDetail] = useState<string | null>(dev === 'detail' ? photos[3]?.key ?? null : null);
   const [detailList, setDetailList] = useState<string[]>([]);
   const [cart, setCart] = useState<Item[]>(devCart);
-  const [buying, setBuying] = useState<string | null>(dev === 'products' ? photos[3]?.key ?? null : null);
+  const [buying, setBuying] = useState<string | null>((dev === 'products' || dev === 'print_home') ? photos[3]?.key ?? null : null);
   const [voucher, setVoucher] = useState<Voucher | null>(null);
   const [credit, setCreditState] = useState<{ cents: number; until: number }>({ cents: 0, until: 0 });
   const [order, setOrder] = useState<Order | null>(dev === 'success' ? { items: devCart, total: 1400, method: 'card', change: 0, ts: Date.now() } : null);
@@ -120,6 +124,9 @@ export function KioskProvider({ cfg, hw, tier, portrait, stageScale, photos, chi
   useEffect(() => hw.on('status', setHwStatus), [hw]);
   useEffect(() => { setHwStatus(hw.status); }, [hw]);
 
+  useEffect(() => { if (!dev && (screenRef.current === 'attract' || !stackRef.current.length)) setScreen(landing); }, [landing, dev]);
+  useEffect(() => { if (!params.has('lang')) setLang(cfg.language); }, [cfg.language, params]);
+
   // Guthaben (zu viel eingeworfen, ohne Wechselgeld) gilt 10 Minuten.
   useEffect(() => {
     if (!credit.cents) return;
@@ -130,7 +137,7 @@ export function KioskProvider({ cfg, hw, tier, portrait, stageScale, photos, chi
 
   // Wie lange jemand schon sucht - fuer die Hilfe-Hinweise.
   useEffect(() => {
-    if (['gallery', 'detail', 'time', 'number'].includes(screen)) setSearchingSince((s) => s || Date.now());
+    if (['gallery', 'detail', 'number', 'face', 'scan'].includes(screen)) setSearchingSince((s) => s || Date.now());
     else if (screen === 'attract' || BUY_SCREENS.includes(screen) || screen === 'success') setSearchingSince(0);
   }, [screen]);
 
@@ -159,7 +166,7 @@ export function KioskProvider({ cfg, hw, tier, portrait, stageScale, photos, chi
   const back = useCallback(() => {
     const st = stackRef.current;
     setStack(st.slice(0, -1));
-    setScreen(st[st.length - 1] ?? 'home');
+    setScreen(st[st.length - 1] ?? 'gallery');
     setOverlay(null);
   }, []);
   const backTo = useCallback((s: Screen) => {
@@ -170,13 +177,17 @@ export function KioskProvider({ cfg, hw, tier, portrait, stageScale, photos, chi
 
   const clearSession = () => {
     setStack([]); setOverlay(null); setSearch({ mode: 'recent' }); setDetail(null); setDetailList([]);
-    setCart([]); setBuying(null); setVoucher(null); setOrder(null); setBusy(false);
+    setCart([]); setBuying(null); setVoucher(null); setOrder(null); setBusy(false); setSearchingSince(0);
   };
-  const reset = () => { clearSession(); setLang(cfg.language); setScreen('attract'); };
-  const restart = () => { clearSession(); setScreen('home'); };
-  const start = (l?: Lang) => { if (l) setLang(l); setStack([]); setScreen('home'); };
+  const reset = () => { clearSession(); setLang(cfg.language); setScreen(landing); if (landing === 'gallery') setSearchingSince(Date.now()); };
+  const restart = () => { clearSession(); setScreen('gallery'); setSearchingSince(Date.now()); };
+  const start = (l?: Lang) => { if (l) setLang(l); setStack([]); setScreen('gallery'); };
 
-  const find = (s: Search, replace = false) => { setSearch(s); go('gallery', { replace }); };
+  const find = (s: Search, replace = false) => {
+    setSearch(s);
+    if (screenRef.current !== 'gallery') backTo('gallery');
+    if (replace && screenRef.current !== 'gallery' && !stackRef.current.includes('gallery')) setStack([]);
+  };
   const openDetail = (key: string, list?: string[], replace = false) => {
     setDetail(key);
     if (list) setDetailList(list);
@@ -186,7 +197,13 @@ export function KioskProvider({ cfg, hw, tier, portrait, stageScale, photos, chi
   const defaultFormat: Format = formats.includes('combo') ? 'combo' : formats.includes('digital') ? 'digital' : formats[0] ?? 'digital';
   const startBuy = (key: string) => {
     if (cart.some((i) => i.key === key)) { go('cart'); return; }
-    if (formats.length <= 1 || cfg.express) { setCart((c) => [...c, { key, format: cfg.express ? defaultFormat : formats[0] ?? 'digital' }]); go('cart'); return; }
+    const canShip = printHomeLink(cfg.links.print_home, byKey.get(key)?.code);
+    if (!formats.length && !canShip) return;
+    if (!canShip && (formats.length === 1 || cfg.express)) {
+      setCart((c) => [...c, { key, format: cfg.express ? defaultFormat : formats[0] }]);
+      go('cart');
+      return;
+    }
     setBuying(key);
     go('products');
   };
@@ -217,11 +234,17 @@ export function KioskProvider({ cfg, hw, tier, portrait, stageScale, photos, chi
     setBusy(false);
     setScreen('success');
   };
+  const finishPickup = (photos: Photo[]) => {
+    clearSession();
+    setOrder({ items: photos.map((p) => ({ key: p.key, format: 'print' })), photos, total: 0, method: 'online_pickup', change: 0, ts: Date.now() });
+    setBusy(true);
+    setScreen('success');
+  };
   const pay = () => {
     if (!cart.length) return;
     if (pricing.total === 0) { finish('free'); return; }
-    const usable = methods.filter((m) => !m.disabled && m.id !== 'voucher');
-    if (usable.length === 1 && !cfg.payments.voucher) go(usable[0].screen); else go('method');
+    const usable = methods.filter((m) => !m.disabled);
+    if (usable.length === 1) go(usable[0].screen); else go('method');
   };
 
   const link = (template: string, codes: string[], ts?: number) => {
@@ -236,7 +259,7 @@ export function KioskProvider({ cfg, hw, tier, portrait, stageScale, photos, chi
     screen, go, back, backTo, start, restart, reset, overlay, setOverlay,
     search, find, detail, detailList, openDetail,
     cart, buying, startBuy, choose, remove, pricing, methods, pay,
-    voucher, setVoucher, credit: credit.cents, setCredit, order, finish, busy, setBusy, searchingSince, link,
+    voucher, setVoucher, credit: credit.cents, setCredit, order, finish, finishPickup, busy, setBusy, searchingSince, link,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

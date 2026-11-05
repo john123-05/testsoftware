@@ -1,8 +1,8 @@
 // Leistungsstufe des PCs: wie viel Animation sich der Rechner leisten kann.
 // Gemessen werden Bilder pro Sekunde, Prozessorkerne und Arbeitsspeicher. Faellt die Bildrate im Betrieb
 // dauerhaft ab (z. B. Grafiktreiber, Hitze), schaltet die App eine Stufe zurueck.
-//   high: Ken-Burns-Hintergrund, Unschaerfe, Konfetti, weiche Uebergaenge
-//   mid:  kurze Uebergaenge, keine Unschaerfe
+//   high/mid: kurze Uebergaenge
+
 //   low:  keine Animationen - alles erscheint sofort
 import { useEffect, useState } from 'react';
 import type { Tier } from './config';
@@ -45,7 +45,7 @@ export function useTier(setting: 'auto' | Tier): Tier {
   }, [setting]);
   useEffect(() => {
     document.documentElement.dataset.tier = tier;
-    document.documentElement.style.setProperty('--dur', tier === 'high' ? '380ms' : tier === 'mid' ? '220ms' : '1ms');
+    document.documentElement.style.setProperty('--dur', tier === 'low' ? '1ms' : '220ms');
   }, [tier]);
   return tier;
 }
