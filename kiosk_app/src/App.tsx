@@ -87,7 +87,15 @@ export default function App() {
     if (params.get('lang')) c = { ...c, language: params.get('lang') as KioskConfig['language'] };
     return c;
   });
-  const cfg = useMemo(() => (sim ? simCfg : mergeConfig(data.config)), [sim, simCfg, data.config]);
+  const cfg = useMemo(() => (sim ? simCfg : mergeConfig(data.base, data.config)), [sim, simCfg, data.base, data.config]);
+  // Nur die Geraete starten, die diese Einstellungen brauchen (Version: Karte, Bargeld, nur digital ...).
+  const devices = useMemo(() => ({
+    card: cfg.payments.card,
+    cash: cfg.payments.cash,
+    printer: cfg.products.print.enabled || cfg.products.combo.enabled,
+    face: cfg.find.face,
+  }), [cfg.payments.card, cfg.payments.cash, cfg.products.print.enabled, cfg.products.combo.enabled, cfg.find.face]);
+  useEffect(() => { if (data.licensed) hw.configure(devices); }, [hw, devices, data.licensed]);
   const [tierSetting, setTierSetting] = useState<'auto' | Tier>((params.get('tier') as Tier) || 'auto');
   const tier = useTier(tierSetting !== 'auto' ? tierSetting : cfg.performance);
   const [frame, setFrame] = useState<Frame>((params.get('frame') as Frame) || 'fit');

@@ -35,6 +35,7 @@ from .viewer_control import (
 from . import __version__
 from .station import schreibe_station
 from .presentation import Praesentation
+from .kiosk import Kiosk, letzte_verkaeufe, verkaeufe
 
 
 log = logging.getLogger(__name__)
@@ -256,6 +257,10 @@ class LiftpicService:
         self._praesentation: Praesentation | None = None
         self._praesentation_zuletzt = 0.0
         self._praesentation_fehler = 0.0
+        # Liftpictures Kiosk (neues Verkaufsprogramm), siehe kiosk.py.
+        self._kiosk: Kiosk | None = None
+        self._kiosk_zuletzt = 0.0
+        self._kiosk_fehler = 0.0
         # Letzter erfolgreicher Abgleich mit dem Server - fuer die Lizenz:
         # ohne Kontakt laeuft die Presentation nur LICENSE_OFFLINE_DAYS weiter.
         try:
@@ -848,6 +853,7 @@ class LiftpicService:
         )
         self._heartbeat_if_due(counts)
         self._presentation_if_due()
+        self._kiosk_if_due()
         return {
             "rides_seen": ride_result.seen,
             "rides_new": ride_result.new,
@@ -972,6 +978,11 @@ class LiftpicService:
             "agent_version": __version__,
             # Presentation (2. Monitor) und Lizenz, fuer die Anzeige im CRM.
             "presentation": self._presentation_status(),
+            # Verkaufsprogramm (Kiosk): Lizenz, Fotos, Tageszahlen ...
+            "kiosk": self._kiosk_status(),
+            # ... und die Verkaeufe der letzten 45 Minuten, damit der Server die
+            # Download-Codes bar/mit Karte bezahlter Fotos freischaltet.
+            "kiosk_sales": self._kiosk_sales(),
             "coin_status": operational_status.coin_status,
             "terminal_status": operational_status.terminal_status,
             "printer_status": operational_status.printer_status,
@@ -1319,6 +1330,99 @@ class LiftpicService:
             if jetzt - self._praesentation_fehler > 600:
                 self._praesentation_fehler = jetzt
                 log.warning("presentation could not be written: %s", exc)
+
+    def _kiosk_license(self, heute: date | None = None) -> tuple[bool, str]:
+        """Darf das Verkaufsprogramm verkaufen? (ja/nein, Grund) - wie die Presentation."""
+        if not self.settings.kiosk_enabled:
+            return False, "disabled"
+        if not self.settings.device_token:
+            return False, "not_paired"
+        bis = self.settings.kiosk_valid_until
+        if bis:
+            try:
+                ende = date.fromisoformat(bis[:10])
+            except ValueError:
+                ende = None
+            if ende is not None and (heute or date.today()) > ende:
+                return False, "expired"
+        if time.time() - self._config_ok_at > LICENSE_OFFLINE_DAYS * 86400:
+            return False, "offline"
+        return True, ""
+
+    def _kiosk_status(self) -> dict | None:
+        """Fuer den Herzschlag (CRM/Dashboard): Lizenz, Fotos, Verkaeufe heute."""
+        if self.settings.kiosk_dir is None:
+            return None
+        if not self.settings.kiosk_enabled and self._kiosk is None:
+            return None
+        ok, grund = self._kiosk_license()
+        return {
+            "enabled": self.settings.kiosk_enabled,
+            "licensed": ok,
+            "reason": grund or None,
+            "valid_until": self.settings.kiosk_valid_until or None,
+            "photos": self._kiosk.anzahl if self._kiosk else 0,
+            "sales_today": verkaeufe(self.settings.kiosk_dir),
+            "running": self._kiosk_laeuft(),
+        }
+
+    def _kiosk_laeuft(self) -> bool | None:
+        """Ob die App lebt: Liftpictures Display schreibt alle paar Sekunden alive.json."""
+        ordner = self.settings.kiosk_dir
+        if ordner is None:
+            return None
+        try:
+            return time.time() - (ordner / "alive.json").stat().st_mtime < 120
+        except OSError:
+            return False
+
+    def _kiosk_sales(self) -> list[dict]:
+        if self.settings.kiosk_dir is None or not self.settings.kiosk_enabled:
+            return []
+        try:
+            return letzte_verkaeufe(self.settings.kiosk_dir, time.time() - 45 * 60)
+        except Exception as exc:
+            log.warning("kiosk sales could not be read: %s", exc)
+            return []
+
+    def _kiosk_if_due(self) -> None:
+        """Den Kiosk-Ordner aktuell halten (data.js, host.json). Wirft nie."""
+        ordner = self.settings.kiosk_dir
+        if ordner is None:
+            return
+        if not self.settings.kiosk_enabled and not (ordner / "data.js").exists():
+            return
+        jetzt = time.time()
+        if jetzt - self._kiosk_zuletzt < PRESENTATION_SECONDS:
+            return
+        self._kiosk_zuletzt = jetzt
+        try:
+            if self._kiosk is None or self._kiosk.ordner != ordner:
+                self._kiosk = Kiosk(ordner)
+            quelle = self._presentation_source()
+            ok, grund = self._kiosk_license()
+            self._kiosk.schreibe(
+                raw_dir=quelle.raw_dir,
+                viewer_xml=quelle.viewer_settings_xml,
+                customer_code=quelle.customer_code,
+                positionen=quelle.file_code_positions,
+                park_slug=self.settings.park_slug,
+                lizenziert=ok,
+                grund=grund,
+                gueltig_bis=self.settings.kiosk_valid_until,
+                konfig=self.settings.kiosk_config_json,
+                qr_basis=self.settings.presentation_qr_base,
+                logo_url=self.settings.station_logo_url,
+                statistic_file=self.settings.statistic_file,
+                print_count_file=self.settings.print_count_file,
+                sold_dir=self.settings.qrcode_dir,
+                coin_stats_file=self.settings.coin_stats_file,
+                machine_id=self.settings.machine_id,
+            )
+        except Exception as exc:
+            if jetzt - self._kiosk_fehler > 600:
+                self._kiosk_fehler = jetzt
+                log.warning("kiosk data could not be written: %s", exc)
 
     def _write_station(self, payload: dict[str, object]) -> None:
         """Den Stand fuer die lokale Statusseite schreiben. Wirft nie."""

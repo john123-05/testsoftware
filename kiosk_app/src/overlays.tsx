@@ -124,7 +124,7 @@ function Admin() {
       </div>
       <p className="modal-note">Liftpictures Kiosk · {k.hw.mode === 'sim' ? 'Simulator' : 'Liftpictures Display'} · {k.tier}</p>
       <div className="modal-actions">
-        <button className="btn btn-ghost btn-xl" onClick={() => { const p = k.today[0]; if (p) void k.hw.print([p]); }}><Icon name="printer" />{k.t('admin.test_print')}</button>
+        <button className="btn btn-ghost btn-xl" onClick={() => { const p = k.today[0]; if (p) void k.hw.print([p], k.cfg.print); }}><Icon name="printer" />{k.t('admin.test_print')}</button>
         {!(k.hw instanceof SimHardware) && <button className="btn btn-ghost btn-xl" onClick={() => k.hw.exit()}>{k.t('admin.exit')}</button>}
         <button className="btn btn-primary btn-xl" onClick={() => k.setOverlay(null)}>{k.t('common.close')}</button>
       </div>
@@ -154,6 +154,7 @@ export function Blocked({ reason }: { reason?: string | null }) {
       <Logo admin />
       <span className="blocked-icon"><Icon name="lock" /></span>
       <h1 className="title">{k.t('blocked.title')}</h1>
+      {reason && k.t(`blocked.r_${reason}`) !== `blocked.r_${reason}` && <p className="pay-lead">{k.t(`blocked.r_${reason}`)}</p>}
       <p className="sub">{k.t('blocked.sub')}{reason ? ` (${reason})` : ''}</p>
     </div>
   );

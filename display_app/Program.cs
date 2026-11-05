@@ -3,7 +3,10 @@
 // Ein kleines Windows-Programm, das die lokalen Seiten des Agenten zeigt:
 //   LiftpicturesDisplay.exe --presentation   Presentation, Vollbild auf dem 2. Monitor
 //   LiftpicturesDisplay.exe --station        Station (Systemzustand), Vollbild auf dem Hauptmonitor
-// Weitere Schalter: --dir <Ordner>  --screen <Nummer, ab 1>  --windowed
+//   LiftpicturesDisplay.exe --kiosk          Verkaufsprogramm (Liftpictures Kiosk) am Touch-Bildschirm,
+//                                            mit Kartenterminal, Muenzgeraet, Drucker, Gesichtssuche
+//                                            (siehe Kiosk\KioskHost.cs)
+// Weitere Schalter: --dir <Ordner>  --screen <Nummer, ab 1>  --windowed  --app <Ordner der Kiosk-App>
 //
 // Die Seiten schreibt Liftpic Sync (presentation.py / station.py) nach
 // C:\liftpic\presentation bzw. C:\liftpic\station. Sie laufen ohne Internet.
@@ -27,11 +30,13 @@ namespace Liftpictures.Display
     {
         public string Mode = "presentation";
         public string Dir;
+        public string AppDir;
         public int ScreenNumber = -1;
         public bool Windowed;
 
         public bool IsStation => Mode == "station";
-        public string Title => IsStation ? "Liftpictures Station" : "Liftpictures Presentation";
+        public bool IsKiosk => Mode == "kiosk";
+        public string Title => IsKiosk ? "Liftpictures Kiosk" : IsStation ? "Liftpictures Station" : "Liftpictures Presentation";
 
         public static Options Parse(string[] args)
         {
@@ -41,12 +46,16 @@ namespace Liftpictures.Display
                 string a = args[i].Trim().ToLowerInvariant();
                 if (a == "--station") o.Mode = "station";
                 else if (a == "--presentation") o.Mode = "presentation";
+                else if (a == "--kiosk") o.Mode = "kiosk";
+                else if (a == "--app" && i + 1 < args.Length) o.AppDir = args[++i];
                 else if (a == "--windowed") o.Windowed = true;
                 else if (a == "--dir" && i + 1 < args.Length) o.Dir = args[++i];
                 else if (a == "--screen" && i + 1 < args.Length && int.TryParse(args[++i], out int n)) o.ScreenNumber = n;
             }
             if (string.IsNullOrWhiteSpace(o.Dir))
-                o.Dir = o.IsStation ? @"C:\liftpic\station" : @"C:\liftpic\presentation";
+                o.Dir = o.IsKiosk ? @"C:\liftpic\kiosk-data" : o.IsStation ? @"C:\liftpic\station" : @"C:\liftpic\presentation";
+            if (string.IsNullOrWhiteSpace(o.AppDir))
+                o.AppDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "kiosk");
             return o;
         }
     }
@@ -55,6 +64,8 @@ namespace Liftpictures.Display
     {
         [DllImport("user32.dll")] internal static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")] internal static extern bool SetProcessDPIAware();
+        [DllImport("shcore.dll")] internal static extern int SetProcessDpiAwareness(int value);
     }
 
     internal static class Program
@@ -63,6 +74,9 @@ namespace Liftpictures.Display
         private static void Main(string[] args)
         {
             var options = Options.Parse(args);
+            // Scharf auf Touch-Bildschirmen mit Skalierung (sonst zieht Windows das Bild unscharf hoch).
+            try { if (NativeMethods.SetProcessDpiAwareness(2) != 0) NativeMethods.SetProcessDPIAware(); }
+            catch { try { NativeMethods.SetProcessDPIAware(); } catch { } }
             // Je Ansicht nur ein Fenster: ein zweiter Start holt das vorhandene nach vorn.
             using (var mutex = new Mutex(true, @"Local\Liftpictures.Display." + options.Mode, out bool first))
             {
@@ -98,6 +112,8 @@ namespace Liftpictures.Display
         private readonly string _page;
         private bool _waiting;
         private Rectangle _windowedBounds;
+        private Kiosk.KioskHost _kiosk;
+        private bool _allowClose;
 
         public DisplayForm(Options o)
         {
@@ -105,7 +121,7 @@ namespace Liftpictures.Display
             _page = Path.Combine(o.Dir, "index.html");
             Text = o.Title;
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { /* Standardsymbol */ }
-            BackColor = o.IsStation ? Color.FromArgb(245, 247, 250) : Color.FromArgb(0x39, 0x77, 0xBD);
+            BackColor = o.IsKiosk ? Color.FromArgb(0x06, 0x18, 0x2B) : o.IsStation ? Color.FromArgb(245, 247, 250) : Color.FromArgb(0x39, 0x77, 0xBD);
             StartPosition = FormStartPosition.Manual;
 
             var screen = PickScreen();
@@ -131,13 +147,26 @@ namespace Liftpictures.Display
             Load += async (s, e) => await StartAsync();
             KeyPreview = true;
             KeyDown += (s, e) => { if (e.KeyCode == Keys.F11) ToggleFullscreen(); };
+            // Das Verkaufsprogramm schliesst nur ueber das Personal-Menue (PIN) - nicht aus Versehen.
+            FormClosing += (s, e) =>
+            {
+                if (_o.IsKiosk && !_allowClose && e.CloseReason == CloseReason.UserClosing) e.Cancel = true;
+            };
+            FormClosed += (s, e) => _kiosk?.Dispose();
+        }
+
+        /// <summary>Vom Personal-Menue (PIN) aus: Programm wirklich beenden.</summary>
+        internal void CloseForGood()
+        {
+            _allowClose = true;
+            Close();
         }
 
         private Screen PickScreen()
         {
             var all = Screen.AllScreens;
             if (_o.ScreenNumber >= 1 && _o.ScreenNumber <= all.Length) return all[_o.ScreenNumber - 1];
-            if (!_o.IsStation)
+            if (!_o.IsStation && !_o.IsKiosk)
             {
                 var second = all.FirstOrDefault(x => !x.Primary);
                 if (second != null) return second;
@@ -185,6 +214,26 @@ namespace Liftpictures.Display
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.IsZoomControlEnabled = false;
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+
+            if (_o.IsKiosk)
+            {
+                // Verkaufsprogramm: eigene App, eigene Geraete-Bruecke, eigene Navigation.
+                try
+                {
+                    _kiosk = new Kiosk.KioskHost(this, core, _o.AppDir, _o.Dir);
+                    _kiosk.Start();
+                }
+                catch (Exception ex)
+                {
+                    core.NavigateToString(KioskErrorHtml(ex.Message));
+                }
+                core.ProcessFailed += (s, e) =>
+                {
+                    if (e.ProcessFailedKind == CoreWebView2ProcessFailedKind.BrowserProcessExited) Application.Restart();
+                    else _kiosk?.Reload();
+                };
+                return;
+            }
 
             // "Hide screen" in der Station schliesst das Fenster.
             core.WindowCloseRequested += (s, e) => Close();
@@ -235,6 +284,15 @@ namespace Liftpictures.Display
                 core.NavigateToString(WaitingHtml());
                 _retry.Start();
             }
+        }
+
+        private static string KioskErrorHtml(string message)
+        {
+            return "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head>" +
+                   "<body style=\"margin:0;height:100vh;display:flex;align-items:center;justify-content:center;" +
+                   "background:#06182b;color:#fff;font:26px 'Segoe UI',Arial,sans-serif\">" +
+                   "<div style=\"text-align:center\">Liftpictures Kiosk<br><span style=\"font-size:17px;opacity:.75\">" +
+                   System.Net.WebUtility.HtmlEncode(message) + "</span></div></body></html>";
         }
 
         private string WaitingHtml()

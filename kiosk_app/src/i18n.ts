@@ -73,6 +73,7 @@ const en: Dict = {
   'help.detail': 'Pinch or double-tap to zoom in.|Swipe or use the arrows for the next photo.|Tap “Choose this photo” to buy it.',
   'help.cart': 'Check your photos and the total.|Add more photos – packages save money.|Tap Pay when you’re ready.',
   'help.pay': 'Follow the arrow to the payment device.|The screen shows when payment is complete.|Tap Cancel to stop – nothing is charged.',
+  'phone.s1_each': 'Scan each photo’s code with your phone', 'phone.done': 'Done', 'blocked.r_no_data': 'The photo service on this PC is not running.', 'blocked.r_offline': 'No connection to Liftpictures for several days.', 'blocked.r_expired': 'The licence has expired.', 'blocked.r_disabled': 'The sales program is switched off for this PC.', 'blocked.r_not_paired': 'This PC is not linked to Liftpictures yet.',
   'blocked.title': 'This kiosk is not activated', 'blocked.sub': 'Please contact Liftpictures support.',
   'admin.title': 'Staff menu', 'admin.pin': 'Enter staff PIN', 'admin.wrong': 'Wrong PIN', 'admin.sales': 'Sales today',
   'admin.orders': '{n} orders', 'admin.devices': 'Devices', 'admin.test_print': 'Test print', 'admin.exit': 'Close program',
@@ -149,6 +150,7 @@ const de: Dict = {
   'help.detail': 'Mit zwei Fingern oder Doppeltipp vergrößern.|Wischen oder Pfeile für das nächste Foto.|„Dieses Foto wählen“ tippen, um es zu kaufen.',
   'help.cart': 'Fotos und Summe prüfen.|Weitere Fotos hinzufügen – Pakete sparen Geld.|Auf Bezahlen tippen, wenn du fertig bist.',
   'help.pay': 'Folge dem Pfeil zum Bezahlgerät.|Der Bildschirm zeigt, wenn die Zahlung fertig ist.|Mit Abbrechen aufhören – es wird nichts berechnet.',
+  'phone.s1_each': 'Code jedes Fotos mit dem Handy scannen', 'phone.done': 'Fertig', 'blocked.r_no_data': 'Der Foto-Dienst auf diesem PC läuft nicht.', 'blocked.r_offline': 'Seit mehreren Tagen keine Verbindung zu Liftpictures.', 'blocked.r_expired': 'Die Lizenz ist abgelaufen.', 'blocked.r_disabled': 'Das Verkaufsprogramm ist für diesen PC ausgeschaltet.', 'blocked.r_not_paired': 'Dieser PC ist noch nicht mit Liftpictures verbunden.',
   'blocked.title': 'Dieser Automat ist nicht freigeschaltet', 'blocked.sub': 'Bitte wende dich an den Liftpictures-Support.',
   'admin.title': 'Personal-Menü', 'admin.pin': 'Personal-PIN eingeben', 'admin.wrong': 'Falsche PIN', 'admin.sales': 'Verkäufe heute',
   'admin.orders': '{n} Bestellungen', 'admin.devices': 'Geräte', 'admin.test_print': 'Testdruck', 'admin.exit': 'Programm schließen',
@@ -224,6 +226,7 @@ const fr: Dict = {
   'help.detail': 'Pincez ou touchez deux fois pour zoomer.|Balayez ou utilisez les flèches.|Touchez « Choisir cette photo » pour l’acheter.',
   'help.cart': 'Vérifiez vos photos et le total.|Ajoutez des photos – les lots font économiser.|Touchez Payer quand vous êtes prêt.',
   'help.pay': 'Suivez la flèche vers l’appareil de paiement.|L’écran indique quand c’est payé.|Annuler arrête tout – rien n’est débité.',
+  'phone.s1_each': 'Scannez le code de chaque photo', 'phone.done': 'Terminé', 'blocked.r_no_data': 'Le service photo de ce PC ne fonctionne pas.', 'blocked.r_offline': 'Aucune connexion à Liftpictures depuis plusieurs jours.', 'blocked.r_expired': 'La licence a expiré.', 'blocked.r_disabled': 'Le programme de vente est désactivé sur ce PC.', 'blocked.r_not_paired': 'Ce PC n’est pas encore relié à Liftpictures.',
   'blocked.title': 'Cette borne n’est pas activée', 'blocked.sub': 'Veuillez contacter le support Liftpictures.',
 };
 
@@ -296,6 +299,7 @@ const es: Dict = {
   'help.detail': 'Pellizca o toca dos veces para ampliar.|Desliza o usa las flechas.|Toca «Elegir esta foto» para comprarla.',
   'help.cart': 'Revisa tus fotos y el total.|Añade fotos: los packs ahorran.|Toca Pagar cuando estés listo.',
   'help.pay': 'Sigue la flecha hasta el dispositivo de pago.|La pantalla indica cuándo está pagado.|Cancelar lo detiene todo: no se cobra nada.',
+  'phone.s1_each': 'Escanea el código de cada foto', 'phone.done': 'Listo', 'blocked.r_no_data': 'El servicio de fotos de este PC no está activo.', 'blocked.r_offline': 'Sin conexión con Liftpictures desde hace días.', 'blocked.r_expired': 'La licencia ha caducado.', 'blocked.r_disabled': 'El programa de venta está desactivado en este PC.', 'blocked.r_not_paired': 'Este PC aún no está vinculado a Liftpictures.',
   'blocked.title': 'Este quiosco no está activado', 'blocked.sub': 'Contacta con el soporte de Liftpictures.',
 };
 
@@ -368,6 +372,7 @@ const it: Dict = {
   'help.detail': 'Pizzica o tocca due volte per ingrandire.|Scorri o usa le frecce.|Tocca «Scegli questa foto» per comprarla.',
   'help.cart': 'Controlla foto e totale.|Aggiungi foto: i pacchetti fanno risparmiare.|Tocca Paga quando sei pronto.',
   'help.pay': 'Segui la freccia verso il dispositivo di pagamento.|Lo schermo mostra quando è pagato.|Annulla interrompe tutto – nessun addebito.',
+  'phone.s1_each': 'Scansiona il codice di ogni foto', 'phone.done': 'Fatto', 'blocked.r_no_data': 'Il servizio foto di questo PC non è attivo.', 'blocked.r_offline': 'Nessuna connessione a Liftpictures da alcuni giorni.', 'blocked.r_expired': 'La licenza è scaduta.', 'blocked.r_disabled': 'Il programma di vendita è disattivato su questo PC.', 'blocked.r_not_paired': 'Questo PC non è ancora collegato a Liftpictures.',
   'blocked.title': 'Questo chiosco non è attivato', 'blocked.sub': 'Contatta il supporto Liftpictures.',
 };
 
@@ -440,6 +445,7 @@ const nl: Dict = {
   'help.detail': 'Knijp of tik twee keer om in te zoomen.|Veeg of gebruik de pijlen.|Tik op „Deze foto kiezen” om hem te kopen.',
   'help.cart': 'Controleer je foto’s en het totaal.|Voeg foto’s toe – pakketten besparen geld.|Tik op Betalen als je klaar bent.',
   'help.pay': 'Volg de pijl naar het betaalapparaat.|Het scherm laat zien wanneer het betaald is.|Annuleren stopt alles – er wordt niets afgeschreven.',
+  'phone.s1_each': 'Scan de code van elke foto', 'phone.done': 'Klaar', 'blocked.r_no_data': 'De fotodienst op deze pc draait niet.', 'blocked.r_offline': 'Al dagen geen verbinding met Liftpictures.', 'blocked.r_expired': 'De licentie is verlopen.', 'blocked.r_disabled': 'Het verkoopprogramma staat uit voor deze pc.', 'blocked.r_not_paired': 'Deze pc is nog niet gekoppeld aan Liftpictures.',
   'blocked.title': 'Deze kiosk is niet geactiveerd', 'blocked.sub': 'Neem contact op met de Liftpictures-support.',
 };
 

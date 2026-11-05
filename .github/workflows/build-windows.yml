@@ -30,10 +30,21 @@ jobs:
           dotnet-version: "8.0.x"
       - name: Build Liftpictures Display
         run: dotnet publish display_app\LiftpicturesDisplay.csproj -c Release -o dist\display
+      # Das Verkaufsprogramm (Liftpictures Kiosk, React) liegt im Ordner "kiosk" neben dem Programm.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build Liftpictures Kiosk app
+        working-directory: kiosk_app
+        run: |
+          npm ci
+          npm run build
       - name: Zip Liftpictures Display
         shell: pwsh
         run: |
+          Copy-Item -Recurse -Force kiosk_app\dist dist\display\kiosk
           Get-ChildItem dist\display
+          Get-ChildItem dist\display\kiosk
           Compress-Archive -Path dist\display\* -DestinationPath dist\LiftpicturesDisplay.zip -Force
       - uses: actions/upload-artifact@v4
         with:

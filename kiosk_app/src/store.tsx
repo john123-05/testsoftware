@@ -3,7 +3,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { FORMATS, type Format, type KioskConfig, type Lang, type PayMethod, type Tier } from './config';
 import { LOCALES, translate } from './i18n';
 import { priceCart, type Item, type Pricing } from './pricing';
-import type { Hardware, HwStatus, Voucher } from './hardware';
+import type { Hardware, HwStatus, SaleRecord, Voucher } from './hardware';
+import { markUsed } from './vouchers';
 import { inDay, type Photo } from './data';
 
 export type Screen = 'attract' | 'home' | 'time' | 'gallery' | 'detail' | 'number' | 'face' | 'products' | 'cart' | 'method' | 'card' | 'cash' | 'phone' | 'voucher' | 'success';
@@ -41,6 +42,31 @@ export function useKiosk(): Kiosk {
   const k = useContext(Ctx);
   if (!k) throw new Error('KioskProvider fehlt');
   return k;
+}
+
+/** Betrag je Foto: die Summe nach Listenpreis verteilt (Pakete, Tagespass) - fuer Statistic.txt. */
+export function saleRecord(o: Order, lines: { item: Item; photo?: Photo }[], unit: Record<Format, number>, voucher: Voucher | null): SaleRecord {
+  const list = lines.map((l) => unit[l.item.format] ?? 0);
+  const sum = list.reduce((a, b) => a + b, 0);
+  let rest = o.total;
+  const prices = list.map((u, i) => {
+    if (i === list.length - 1) return rest;
+    const share = sum > 0 ? Math.round((o.total * u) / sum) : Math.floor(o.total / list.length);
+    rest -= share;
+    return share;
+  });
+  const d = new Date(o.ts);
+  const off = -d.getTimezoneOffset();
+  const pad = (n: number) => String(Math.trunc(Math.abs(n))).padStart(2, '0');
+  const at = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${off >= 0 ? '+' : '-'}${pad(off / 60)}:${pad(off % 60)}`;
+  return {
+    id: `${o.ts.toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    at, method: o.method, amount_cents: o.total, change_cents: o.change, voucher: voucher?.code ?? null,
+    items: lines.map((l, i) => ({
+      key: l.item.key, file: l.photo?.file, code: l.photo?.code, number: l.photo?.number ?? '',
+      format: l.item.format, price_cents: prices[i],
+    })),
+  };
 }
 
 const SALES_KEY = 'lp-kiosk-sales';
@@ -183,6 +209,9 @@ export function KioskProvider({ cfg, hw, tier, portrait, stageScale, photos, chi
     const o: Order = { items: cart, total: pricing.total, method: m, change, ts: Date.now() };
     setOrder(o);
     logSale(o);
+    // Bezahlt wird auf dem Handy im Shop - der Verkauf zaehlt dort, nicht hier.
+    if (m !== 'phone') hw.sale(saleRecord(o, cart.map((i) => ({ item: i, photo: byKey.get(i.key) })), pricing.unit, voucher));
+    if (voucher?.kind === 'photos') markUsed(voucher.code);
     setStack([]);
     setOverlay(null);
     setBusy(false);

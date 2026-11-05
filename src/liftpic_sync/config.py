@@ -177,6 +177,14 @@ class Settings:
     presentation_qr_base: str = ""
     # Gestaltung der Presentation aus dem CRM (JSON, siehe presentation_design.py).
     presentation_design_json: str = ""
+    # "Liftpictures Kiosk": das neue Verkaufsprogramm (kiosk.py). Freischaltung
+    # und Einstellungen pro PC aus dem CRM; ohne Lizenz zeigt es einen Hinweis.
+    kiosk_enabled: bool = False
+    kiosk_dir: Path | None = None
+    # Leer = unbegrenzt, sonst "JJJJ-MM-TT" (letzter gueltiger Tag).
+    kiosk_valid_until: str = ""
+    # Einstellungen aus dem CRM (JSON): Version, Preise, Pakete, Design, Texte.
+    kiosk_config_json: str = ""
     # Payment terminal, for a plain reachability check (no protocol talk).
     terminal_host: str = ""
     terminal_port: int = 22000
@@ -357,6 +365,13 @@ class Settings:
             presentation_dir=(
                 Path(pres_raw) if (pres_raw := _get(values, "PRESENTATION_DIR", "").strip())
                 else app_dir.parent / "presentation"
+            ),
+            kiosk_enabled=parse_bool(_get(values, "KIOSK_ENABLED", "false"), False),
+            kiosk_valid_until=_get(values, "KIOSK_VALID_UNTIL", "").strip(),
+            kiosk_config_json=_get(values, "KIOSK_CONFIG_JSON", "").strip(),
+            kiosk_dir=(
+                Path(kiosk_raw) if (kiosk_raw := _get(values, "KIOSK_DIR", "").strip())
+                else app_dir.parent / "kiosk-data"
             ),
             station_dir=(
                 Path(station_raw) if (station_raw := _get(values, "STATION_DIR", "").strip())

@@ -1,17 +1,44 @@
 // Fotos und Einstellungen.
-// Im Automaten schreibt der Agent (Liftpic Sync) data.js: window.__kiosk({licensed, reason, config, photos}).
-// Die App laedt die Datei alle 2 Sekunden neu - neue Fotos stehen sofort zur Auswahl, auch ohne Internet.
+// Im Automaten schreibt der Agent (Liftpic Sync) data.js: window.__kiosk({licensed, reason, base, config, photos}).
+// Liftpictures Display liefert sie unter https://kiosk-media.liftpictures/ aus, dazu die Fotos
+// (photo/<datei>) und verkleinerte Vorschaubilder (thumb/<datei>), die es selbst erzeugt und zwischenspeichert.
+// Die App laedt data.js alle 2 Sekunden neu - neue Fotos stehen sofort zur Auswahl, auch ohne Internet.
 // Im Browser/Demo: erzeugte Beispielfotos (Alpine-Coaster-Szenen) ohne echte Gaeste.
 import { useEffect, useRef, useState } from 'react';
 
-export type Photo = { key: string; src: string; thumb?: string; number: string; ts: number; code?: string; url?: string };
-export type KioskData = { licensed: boolean; reason?: string | null; config?: unknown; photos: Photo[] };
+export type Photo = { key: string; src: string; thumb?: string; file?: string; number: string; ts: number; code?: string; url?: string };
+export type KioskData = {
+  licensed: boolean; reason?: string | null; valid_until?: string | null; machine_id?: string;
+  /** Was der Agent weiss (Links zur Kaufseite, Logo) - darunter liegen die Vorgaben, darueber das CRM. */
+  base?: unknown; config?: unknown; photos: Photo[];
+};
 
 /** Ein Betriebstag: die letzten 20 Stunden (Parks ueber Mitternacht, Demo am Morgen). */
 export const DAY_SECONDS = 20 * 3600;
 export const inDay = (p: Photo, now = Date.now() / 1000) => p.ts >= now - DAY_SECONDS;
 
-const DATA_URL = (window as unknown as { __KIOSK_DATA_URL?: string }).__KIOSK_DATA_URL ?? 'https://kiosk-data.liftpictures/data.js';
+export const MEDIA = (window as unknown as { __KIOSK_MEDIA?: string }).__KIOSK_MEDIA ?? 'https://kiosk-media.liftpictures/';
+const DATA_URL = `${MEDIA}data.js`;
+/** Ohne data.js so lange kommt der Hinweis "Bitte Personal rufen" (Agent laeuft nicht). */
+const NO_DATA_MS = 30_000;
+
+/** Pfade aus data.js (z. B. "park-logo?v=1") zeigen auf den Medien-Server. */
+export function mediaUrl(path: string | null | undefined): string | null {
+  if (!path) return null;
+  return /^(https?:|data:)/.test(path) ? path : MEDIA + path.replace(/^\/+/, '');
+}
+
+function withMedia(p: Photo): Photo {
+  if (!p.file || p.src) return p;
+  const f = encodeURIComponent(p.file);
+  return { ...p, src: `${MEDIA}photo/${f}`, thumb: `${MEDIA}thumb/${f}` };
+}
+
+function withLogo(base: unknown): unknown {
+  const b = base as { theme?: { logo?: string | null } } | undefined;
+  if (!b?.theme?.logo) return base;
+  return { ...b, theme: { ...b.theme, logo: mediaUrl(b.theme.logo) } };
+}
 
 function rng(seed: number) {
   let s = seed >>> 0 || 1;
@@ -109,12 +136,22 @@ export function useKioskData(sim: boolean) {
       const id = window.setInterval(() => setData((d) => ({ ...d, photos: [sample(Number(d.photos[0]?.number ?? 4100) + 1, Math.floor(Date.now() / 1000)), ...d.photos] })), 75_000);
       return () => window.clearInterval(id);
     }
+    let loadedAt = 0;
+    const started = Date.now();
     (window as unknown as { __kiosk?: (d: KioskData) => void }).__kiosk = (d: KioskData) => {
-      const sig = JSON.stringify([d.licensed, d.reason, d.config, d.photos?.length, d.photos?.[0]?.key]);
+      loadedAt = Date.now();
+      const sig = JSON.stringify([d.licensed, d.reason, d.valid_until, d.base, d.config, d.photos?.length, d.photos?.[0]?.key]);
       if (sig === last.current) return;
       last.current = sig;
-      setData({ ...d, photos: [...(d.photos ?? [])].sort((a, b) => b.ts - a.ts) });
+      setData({ ...d, base: withLogo(d.base), photos: (d.photos ?? []).map(withMedia).sort((a, b) => b.ts - a.ts) });
     };
+    const watchdog = window.setInterval(() => {
+      // Kommt lange nichts (Agent aus), lieber einen Hinweis zeigen als einen leeren Automaten.
+      if (!loadedAt && Date.now() - started > NO_DATA_MS && last.current !== 'no_data') {
+        last.current = 'no_data';
+        setData({ licensed: false, reason: 'no_data', photos: [] });
+      }
+    }, 5000);
     let current: HTMLScriptElement | null = null;
     const load = () => {
       const s = document.createElement('script');
@@ -124,7 +161,7 @@ export function useKioskData(sim: boolean) {
     };
     load();
     const id = window.setInterval(load, 2000);
-    return () => window.clearInterval(id);
+    return () => { window.clearInterval(id); window.clearInterval(watchdog); };
   }, [sim]);
 
   const addSample = () => setData((d) => ({ ...d, photos: [sample(Number(d.photos[0]?.number ?? 4100) + 1, Math.floor(Date.now() / 1000)), ...d.photos] }));

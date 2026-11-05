@@ -13,8 +13,15 @@
   Die alte Autostart-Einstellung des Gaeste-Bildschirms wird einmal gesichert.
   Zurueck zur Online-Seite: scripts\presentation_einrichten.ps1 -Online
 
+  -Kiosk legt zusaetzlich "Liftpictures Kiosk" an (neues Verkaufsprogramm,
+  LiftpicturesDisplay.exe --kiosk) auf Desktop und im Startmenue,
+  -KioskAutostart auch im Autostart. Gestartet wird es nur, wenn das alte
+  Verkaufsprogramm (PhotoViewerFacebook) nicht laeuft - beide zugleich wuerden
+  sich um Muenzgeraet und Kartenterminal streiten. Dessen Autostart bleibt,
+  wie er ist (Umstellung vor Ort).
+
   Als angemeldeter Benutzer bzw. in dessen Administrator-PowerShell ausfuehren.
-  Kamera-Software und Verkaufsprogramm werden nicht angefasst.
+  Kamera-Software und altes Verkaufsprogramm werden nicht angefasst.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File C:\liftpic\liftpic-sync\scripts\display_einrichten.ps1 -Tag v0.5.0
@@ -23,8 +30,11 @@ param(
   [string]$Tag = "",
   [string]$Dir = "C:\liftpic\display",
   [string]$Repo = "https://github.com/john123-05/testsoftware",
-  [switch]$OhnePresentation
+  [switch]$OhnePresentation,
+  [switch]$Kiosk,
+  [switch]$KioskAutostart
 )
+if ($KioskAutostart) { $Kiosk = $true }
 $ErrorActionPreference = "Stop"
 
 if (-not $Tag) {
@@ -82,6 +92,12 @@ if (-not $OhnePresentation) {
 Lnk (Join-Path $startup "Liftpictures Station.lnk") "--station" "Liftpictures Station - system status of this photo PC"
 Lnk (Join-Path $desktop "Liftpictures Station.lnk") "--station" "Liftpictures Station - system status of this photo PC"
 Lnk (Join-Path $startmenue "Liftpictures Station.lnk") "--station" "Liftpictures Station - system status of this photo PC"
+if ($Kiosk) {
+  if (-not (Test-Path (Join-Path $Dir "kiosk\index.html"))) { throw "Kiosk-App fehlt im Paket ($Dir\kiosk)." }
+  Lnk (Join-Path $desktop "Liftpictures Kiosk.lnk") "--kiosk" "Liftpictures Kiosk - photo sales"
+  Lnk (Join-Path $startmenue "Liftpictures Kiosk.lnk") "--kiosk" "Liftpictures Kiosk - photo sales"
+  if ($KioskAutostart) { Lnk (Join-Path $startup "Liftpictures Kiosk.lnk") "--kiosk" "Liftpictures Kiosk - photo sales" }
+}
 
 # 3) Alte Browser-Fenster schliessen, Programm starten
 Write-Host "4/4 Starte ..."
@@ -91,6 +107,13 @@ Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" -ErrorAction SilentlyC
 Start-Sleep -Seconds 2
 if (-not $OhnePresentation) { Start-Process -FilePath $exe -ArgumentList "--presentation" -WorkingDirectory $Dir }
 Start-Process -FilePath $exe -ArgumentList "--station" -WorkingDirectory $Dir
+if ($Kiosk) {
+  if (Get-Process -Name PhotoViewerFacebook -ErrorAction SilentlyContinue) {
+    Write-Host "Kiosk NICHT gestartet: das alte Verkaufsprogramm (PhotoViewerFacebook) laeuft noch."
+  } else {
+    Start-Process -FilePath $exe -ArgumentList "--kiosk" -WorkingDirectory $Dir
+  }
+}
 
 Write-Host ""
 Write-Host "Fertig. Liftpictures Display $Tag laeuft."

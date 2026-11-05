@@ -88,13 +88,16 @@ FERNSCHALTBAR: tuple[tuple[str, str], ...] = (
     ("license_valid_until", "LICENSE_VALID_UNTIL"),
     ("presentation_qr_base", "PRESENTATION_QR_BASE"),
     ("presentation_design", "PRESENTATION_DESIGN_JSON"),
+    ("kiosk_enabled", "KIOSK_ENABLED"),
+    ("kiosk_valid_until", "KIOSK_VALID_UNTIL"),
+    ("kiosk_config", "KIOSK_CONFIG_JSON"),
     ("probe_skip_programs", "PROBE_SKIP_PROGRAMS"),
 )
 
 # Welche davon Schalter sind und deshalb als true/false geschrieben werden.
 FERNSCHALTBAR_BOOLEAN = {
     "viewer_restart_enabled", "asset_sync_enabled", "probe_enabled",
-    "station_enabled", "presentation_enabled",
+    "station_enabled", "presentation_enabled", "kiosk_enabled",
 }
 
 
@@ -117,7 +120,7 @@ def _merkmale_aus_einstellungen(config: dict[str, object]) -> dict[str, str]:
             continue
         if schluessel in FERNSCHALTBAR_BOOLEAN:
             ergebnis[env_name] = _bool_env(wert)
-        elif schluessel in ("camera_streams", "presentation_design"):
+        elif schluessel in ("camera_streams", "presentation_design", "kiosk_config"):
             import json
             ergebnis[env_name] = json.dumps(wert, ensure_ascii=True, separators=(",", ":"))
         elif isinstance(wert, (list, tuple)):

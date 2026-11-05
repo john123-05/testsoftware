@@ -170,33 +170,61 @@ export function CashPay() {
   );
 }
 
+/** Ein Link fuer alle Fotos, wenn die Kaufseite das kann ({codes}) - sonst ein QR-Code je Foto. */
+export function useLinks(template: string, keys: string[]) {
+  const k = useKiosk();
+  const codes = keys.map((key) => k.byKey.get(key)?.code ?? key);
+  if (codes.length <= 1 || template.includes('{codes}')) return [{ url: k.link(template, codes), key: keys[0] }];
+  return codes.map((c, i) => ({ url: k.link(template, [c]), key: keys[i] }));
+}
+
+function QrList({ links, size }: { links: { url: string; key?: string }[]; size: string }) {
+  const k = useKiosk();
+  return (
+    <div className="qr-list">
+      {links.map((l, i) => {
+        const p = l.key ? k.byKey.get(l.key) : undefined;
+        return (
+          <div className="qr-item" key={`${l.url}-${i}`}>
+            <QR value={l.url} size={size} />
+            {p && <span className="chip">{k.t('detail.number', { n: p.number })}</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PhonePay() {
   const k = useKiosk();
   const { t } = k;
-  const codes = k.cart.map((i) => k.byKey.get(i.key)?.code ?? i.key);
-  const url = k.link(k.cfg.links.phone_pay, codes);
+  const links = useLinks(k.cfg.links.phone_pay, k.cart.map((i) => i.key));
   useEffect(() => {
     let alive = true;
     k.setBusy(true);
-    void k.hw.phonePaid(url).then((ok) => { if (alive && ok) k.finish('phone'); });
+    if (k.hw.phoneConfirms) void k.hw.phonePaid(links[0]?.url ?? '').then((ok) => { if (alive && ok) k.finish('phone'); });
     return () => { alive = false; k.hw.phoneCancel(); k.setBusy(false); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const single = links.length === 1;
   return (
     <div className="screen pay pay-phone">
-      <div className="pay-body">
-        <div className="phone-qr"><QR value={url} size="22rem" /><span className="phone-amount">{k.money(k.pricing.total)}</span></div>
+      <div className={`pay-body${single ? '' : ' multi'}`}>
+        {single
+          ? <div className="phone-qr"><QR value={links[0].url} size="22rem" /><span className="phone-amount">{k.money(k.pricing.total)}</span></div>
+          : <QrList links={links} size={links.length > 4 ? '9rem' : '12rem'} />}
         <div className="pay-info">
           <h1 className="title">{t('phone.title')}</h1>
           <ol className="phone-steps">
-            <li><span>1</span>{t('phone.s1')}</li>
+            <li><span>1</span>{single ? t('phone.s1') : t('phone.s1_each')}</li>
             <li><span>2</span>{t('phone.s2')}</li>
             <li><span>3</span>{t('phone.s3')}</li>
           </ol>
-          <p className="pay-lead"><Spinner />{t('phone.waiting')}</p>
+          {k.hw.phoneConfirms && <p className="pay-lead"><Spinner />{t('phone.waiting')}</p>}
         </div>
       </div>
       <Bottom back={false}>
-        <button className="btn btn-ghost btn-xl" onClick={() => { k.hw.phoneCancel(); k.setBusy(false); k.back(); }}>{t('common.cancel')}</button>
+        <button className="btn btn-ghost btn-xl" onClick={() => { k.hw.phoneCancel(); k.setBusy(false); k.back(); }}>{t('common.back')}</button>
+        {!k.hw.phoneConfirms && <button className="btn btn-primary btn-xl" onClick={k.reset}>{t('phone.done')}<Icon name="check" /></button>}
       </Bottom>
     </div>
   );
@@ -226,7 +254,7 @@ export function VoucherScreen() {
   };
   async function redeem() {
     setState('check');
-    const res = await k.hw.voucherCheck(v);
+    const res = await k.hw.voucherCheck(v, k.cfg.vouchers.secret);
     if (!res) { setState('bad'); return; }
     k.setVoucher(res);
     setMsg(res.kind === 'day' ? t('voucher.day') : t('voucher.photos', { n: res.photos }));
@@ -267,7 +295,7 @@ export function Success() {
     if (!prints.length) return;
     const off = k.hw.on('print', (p) => setPrint((v) => ({ ...v, done: p.done })));
     const photos = prints.map((i) => k.byKey.get(i.key)).filter((p): p is NonNullable<typeof p> => !!p);
-    void k.hw.print(photos).then((ok) => setPrint((v) => ({ ...v, ok })));
+    void k.hw.print(photos, k.cfg.print).then((ok) => setPrint((v) => ({ ...v, ok })));
     return off;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -281,7 +309,6 @@ export function Success() {
   if (!o) return null;
   // Faellt der Drucker aus, bekommt der Gast seine Fotos digital.
   const downloadItems = print.ok === false ? o.items : digital;
-  const codes = downloadItems.map((i) => k.byKey.get(i.key)?.code ?? i.key);
   const first = k.byKey.get(o.items[0]?.key ?? '');
   return (
     <div className="screen success">
@@ -306,7 +333,7 @@ export function Success() {
         )}
         {downloadItems.length > 0 && (
           <div className="s-card digital">
-            <QR value={k.link(k.cfg.links.download, codes)} size="13rem" />
+            <DownloadQr keys={downloadItems.map((i) => i.key)} />
             <div><b>{t('success.digital')}</b><small>{t('common.photos', { n: downloadItems.length })}</small></div>
           </div>
         )}
@@ -318,4 +345,10 @@ export function Success() {
       </Bottom>
     </div>
   );
+}
+
+function DownloadQr({ keys }: { keys: string[] }) {
+  const k = useKiosk();
+  const links = useLinks(k.cfg.links.download, keys);
+  return links.length === 1 ? <QR value={links[0].url} size="13rem" /> : <QrList links={links} size={links.length > 3 ? '7rem' : '9rem'} />;
 }

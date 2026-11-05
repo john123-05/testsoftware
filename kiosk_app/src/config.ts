@@ -43,6 +43,10 @@ export type KioskConfig = {
   devices: { card: Pos; cash: Pos; printer: Pos };
   /** {code} = erster Code, {codes} = alle Codes (Komma), {time} = HH:MM */
   links: { phone_search: string; phone_pay: string; download: string };
+  /** Was auf den Ausdruck kommt (Lage und Groesse stehen in der Settings.xml des Automaten). */
+  print: { qr: boolean; date: boolean; logo: boolean };
+  /** Gutscheine/Tagespass: Codes werden offline geprueft (Pruefsumme mit diesem Schluessel, aus dem CRM). */
+  vouchers: { secret: string };
   idle_seconds: number;
   help_seconds: number;
   admin_pin: string;
@@ -77,6 +81,8 @@ export const DEFAULT_CONFIG: KioskConfig = {
     phone_pay: 'https://liftpictures-fotos.de/demo/shop?codes={codes}',
     download: 'https://liftpictures-fotos.de/demo/claim?code={code}',
   },
+  print: { qr: true, date: true, logo: true },
+  vouchers: { secret: '' },
   idle_seconds: 45,
   help_seconds: 20,
   admin_pin: '2580',
@@ -142,8 +148,9 @@ function merge<T>(base: T, raw: unknown): T {
   return out as T;
 }
 
-export function mergeConfig(raw: unknown): KioskConfig {
-  const c = merge(DEFAULT_CONFIG, raw);
+/** Ebenen von unten nach oben: Vorgaben, was der Agent weiss (Links, Logo), Einstellungen aus dem CRM. */
+export function mergeConfig(...layers: unknown[]): KioskConfig {
+  const c = layers.reduce<KioskConfig>((acc, raw) => merge(acc, raw), DEFAULT_CONFIG);
   const langs = c.languages.filter((l) => LANGS.some((x) => x.id === l));
   return {
     ...c,
@@ -155,5 +162,6 @@ export function mergeConfig(raw: unknown): KioskConfig {
     find: { ...c.find, just_rode_minutes: Math.max(2, Math.min(60, c.find.just_rode_minutes)) },
     packages: c.packages.filter((p) => p && FORMATS.includes(p.format) && p.photos > 1 && p.price > 0),
     cash: { ...c.cash, denominations: c.cash.denominations.filter((d) => Number.isInteger(d) && d > 0).sort((a, b) => a - b) },
+    admin_pin: /^\d{4,8}$/.test(c.admin_pin) ? c.admin_pin : DEFAULT_CONFIG.admin_pin,
   };
 }

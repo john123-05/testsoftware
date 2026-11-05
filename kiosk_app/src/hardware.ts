@@ -8,13 +8,23 @@
 //
 // Ohne dieses Programm (Browser, Demo) laeuft alles im Simulator: Muenzen, Karte, Drucker, Gesicht
 // lassen sich im Simulator-Feld ausloesen; Zahlungen gehen sonst nach ein paar Sekunden von selbst durch.
+import QRCode from 'qrcode';
 import type { Photo } from './data';
+import { checkVoucher } from './vouchers';
 
 export type CardResult = 'approved' | 'declined' | 'timeout' | 'cancelled' | 'error';
 export type PrinterState = 'ready' | 'printing' | 'paper_out' | 'offline';
 export type HwStatus = { card: boolean; cash: boolean; change: boolean; printer: PrinterState; face: boolean; camera: boolean };
 export type Voucher = { code: string; kind: 'day' } | { code: string; kind: 'photos'; photos: number };
 export type HwEvents = { coin: number; status: HwStatus; print: { done: number; total: number }; card: 'waiting' | 'processing' };
+/** Welche Geraete die Einstellungen brauchen - nur die startet das Programm. */
+export type Devices = { card: boolean; cash: boolean; printer: boolean; face: boolean };
+export type PrintOptions = { qr: boolean; date: boolean; logo: boolean };
+/** Ein Verkauf, wie ihn Liftpictures Display in Statistic.txt und sales/JJJJ-MM-TT.jsonl schreibt. */
+export type SaleRecord = {
+  id: string; at: string; method: string; amount_cents: number; change_cents: number; voucher: string | null;
+  items: { key: string; file?: string; code?: string; number: string; format: string; price_cents: number }[];
+};
 
 export interface Hardware {
   mode: 'sim' | 'host';
@@ -25,11 +35,15 @@ export interface Hardware {
   cashPayout(cents: number): Promise<number>;
   cardPay(cents: number): Promise<CardResult>;
   cardCancel(): void;
-  print(photos: Photo[]): Promise<boolean>;
+  print(photos: Photo[], opts?: PrintOptions): Promise<boolean>;
   faceSearch(image: string | null, candidates: Photo[]): Promise<string[]>;
+  /** Ob das Programm eine Handy-Zahlung bestaetigen kann. Sonst tippt der Gast auf "Fertig". */
+  phoneConfirms: boolean;
   phonePaid(url: string): Promise<boolean>;
   phoneCancel(): void;
-  voucherCheck(code: string): Promise<Voucher | null>;
+  voucherCheck(code: string, secret: string): Promise<Voucher | null>;
+  configure(devices: Devices): void;
+  sale(rec: SaleRecord): void;
   exit(): void;
 }
 
@@ -126,14 +140,21 @@ export class SimHardware extends Emitter implements Hardware {
   }
   phoneCancel() { this.simPhone(false); }
 
-  /** Demo-Codes: D + 7 Zeichen = Tagespass (z. B. DAYPASS2), P + Ziffer + 6 Zeichen = so viele Gratis-Fotos (z. B. P2FREE22). */
-  async voucherCheck(code: string): Promise<Voucher | null> {
+  phoneConfirms = true;
+
+  /** Demo-Codes: D + 7 Zeichen = Tagespass (z. B. DAYPASS2), P + Ziffer + 6 Zeichen = so viele Gratis-Fotos (z. B. P2FREE22).
+   *  Mit Schluessel aus dem CRM gelten zusaetzlich die echten Codes. */
+  async voucherCheck(code: string, secret: string): Promise<Voucher | null> {
     await sleep(700);
     const c = code.toUpperCase();
-    if (/^D[A-Z2-9]{7}$/.test(c)) return { code: c, kind: 'day' };
-    const m = /^P([1-5])[A-Z2-9]{6}$/.exec(c);
+    const real = await checkVoucher(c, secret);
+    if (real) return real;
+    if (/^DAYPASS[2-9]$/.test(c)) return { code: c, kind: 'day' };
+    const m = /^P([1-5])FREE[A-Z2-9]{2}$/.exec(c);
     return m ? { code: c, kind: 'photos', photos: Number(m[1]) } : null;
   }
+  configure() { /* Simulator: alles da */ }
+  sale(rec: SaleRecord) { console.info('[kiosk] Verkauf', rec); }
   exit() { /* im Browser nichts zu schliessen */ }
 }
 
@@ -142,6 +163,8 @@ type WebView = { postMessage(m: unknown): void; addEventListener(t: 'message', c
 export class HostHardware extends Emitter implements Hardware {
   mode = 'host' as const;
   status: HwStatus = { card: false, cash: false, change: false, printer: 'offline', face: false, camera: false };
+  /** Bezahlt wird auf dem Handy direkt im Shop - das sieht der Automat nicht. */
+  phoneConfirms = false;
   private calls = new Map<number, (v: unknown) => void>();
   private seq = 0;
   private wv: WebView;
@@ -168,11 +191,24 @@ export class HostHardware extends Emitter implements Hardware {
   cashPayout(cents: number) { return this.call<number>('cashPayout', cents); }
   cardPay(cents: number) { return this.call<CardResult>('cardPay', cents); }
   cardCancel() { void this.call('cardCancel'); }
-  print(photos: Photo[]) { return this.call<boolean>('print', photos.map((p) => ({ key: p.key, src: p.src, number: p.number, ts: p.ts }))); }
-  faceSearch(image: string | null, candidates: Photo[]) { return this.call<string[]>('faceSearch', image, candidates.map((p) => p.key)); }
-  phonePaid(url: string) { return this.call<boolean>('phonePaid', url); }
-  phoneCancel() { void this.call('phoneCancel'); }
-  voucherCheck(code: string) { return this.call<Voucher | null>('voucherCheck', code); }
+  async print(photos: Photo[], opts: PrintOptions = { qr: true, date: true, logo: true }) {
+    // Den QR-Code zeichnet die App (gleiche Bibliothek wie am Bildschirm), das Programm setzt ihn aufs Foto.
+    const jobs = await Promise.all(photos.map(async (p) => ({
+      file: p.file, number: p.number, ts: p.ts, code: p.code,
+      qr: opts.qr && p.url ? await QRCode.toDataURL(p.url, { margin: 1, width: 360, errorCorrectionLevel: 'M' }) : null,
+    })));
+    return this.call<boolean>('print', jobs, opts);
+  }
+  async faceSearch(image: string | null, candidates: Photo[]) {
+    const byFile = new Map(candidates.filter((p) => p.file).map((p) => [p.file as string, p.key]));
+    const files = await this.call<string[]>('faceSearch', image, [...byFile.keys()]);
+    return (files ?? []).map((f) => byFile.get(f)).filter((k): k is string => !!k);
+  }
+  phonePaid() { return new Promise<boolean>(() => { /* siehe phoneConfirms */ }); }
+  phoneCancel() { /* nichts offen */ }
+  async voucherCheck(code: string, secret: string) { return checkVoucher(code, secret); }
+  configure(devices: Devices) { void this.call('configure', devices); }
+  sale(rec: SaleRecord) { void this.call('sale', rec); }
   exit() { void this.call('exit'); }
 }
 
