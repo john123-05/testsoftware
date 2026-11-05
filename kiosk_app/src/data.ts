@@ -11,6 +11,8 @@ export type KioskData = {
   licensed: boolean; reason?: string | null; valid_until?: string | null; machine_id?: string;
   /** Was der Agent weiss (Links zur Kaufseite, Logo) - darunter liegen die Vorgaben, darueber das CRM. */
   base?: unknown; config?: unknown; photos: Photo[];
+  /** Am Automaten erst wahr, wenn data.js vom Agenten wirklich da war. */
+  loaded?: boolean;
 };
 
 /** Ein Betriebstag: die letzten 20 Stunden (Parks ueber Mitternacht, Demo am Morgen). */
@@ -127,7 +129,7 @@ export function samplePhotos(now = Date.now()): Photo[] {
 }
 
 export function useKioskData(sim: boolean) {
-  const [data, setData] = useState<KioskData>(() => (sim ? { licensed: true, photos: samplePhotos() } : { licensed: true, photos: [] }));
+  const [data, setData] = useState<KioskData>(() => (sim ? { licensed: true, loaded: true, photos: samplePhotos() } : { licensed: true, loaded: false, photos: [] }));
   const last = useRef('');
 
   useEffect(() => {
@@ -143,7 +145,7 @@ export function useKioskData(sim: boolean) {
       const sig = JSON.stringify([d.licensed, d.reason, d.valid_until, d.base, d.config, d.photos?.length, d.photos?.[0]?.key]);
       if (sig === last.current) return;
       last.current = sig;
-      setData({ ...d, base: withLogo(d.base), photos: (d.photos ?? []).map(withMedia).sort((a, b) => b.ts - a.ts) });
+      setData({ ...d, loaded: true, base: withLogo(d.base), photos: (d.photos ?? []).map(withMedia).sort((a, b) => b.ts - a.ts) });
     };
     const watchdog = window.setInterval(() => {
       // Kommt lange nichts (Agent aus), lieber einen Hinweis zeigen als einen leeren Automaten.

@@ -48,7 +48,7 @@ KONFIG_BEREICHE = {
     "park_name", "currency", "language", "languages", "time_format", "rotation",
     "performance", "express", "theme", "attract", "find", "products", "packages",
     "payments", "cash", "devices", "links", "idle_seconds", "help_seconds",
-    "admin_pin", "edition", "print",
+    "admin_pin", "edition", "print", "vouchers",
 }
 
 

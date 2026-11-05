@@ -114,6 +114,7 @@ def test_konfig_nur_bekannte_bereiche():
     assert lies_konfig("[1,2]") == {}
     assert lies_konfig('{"payments":["cash"],"x":1}') == {"payments": ["cash"]}
     assert lies_konfig({"theme": {"preset": "night"}}) == {"theme": {"preset": "night"}}
+    assert lies_konfig({"vouchers": {"secret": "ab12"}}) == {"vouchers": {"secret": "ab12"}}
     assert lies_konfig("{" + '"a":1,' * 20000 + '"b":2}') == {}
 
 

@@ -15,7 +15,8 @@ import { checkVoucher } from './vouchers';
 export type CardResult = 'approved' | 'declined' | 'timeout' | 'cancelled' | 'error';
 export type PrinterState = 'ready' | 'printing' | 'paper_out' | 'offline';
 export type HwStatus = { card: boolean; cash: boolean; change: boolean; printer: PrinterState; face: boolean; camera: boolean };
-export type Voucher = { code: string; kind: 'day' } | { code: string; kind: 'photos'; photos: number };
+export type { Voucher } from './vouchers';
+import type { Voucher } from './vouchers';
 export type HwEvents = { coin: number; status: HwStatus; print: { done: number; total: number }; card: 'waiting' | 'processing' };
 /** Welche Geraete die Einstellungen brauchen - nur die startet das Programm. */
 export type Devices = { card: boolean; cash: boolean; printer: boolean; face: boolean };

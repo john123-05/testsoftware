@@ -95,12 +95,24 @@ export default function App() {
     printer: cfg.products.print.enabled || cfg.products.combo.enabled,
     face: cfg.find.face,
   }), [cfg.payments.card, cfg.payments.cash, cfg.products.print.enabled, cfg.products.combo.enabled, cfg.find.face]);
-  useEffect(() => { if (data.licensed) hw.configure(devices); }, [hw, devices, data.licensed]);
+  useEffect(() => { if (data.licensed && data.loaded) hw.configure(devices); }, [hw, devices, data.licensed, data.loaded]);
   const [tierSetting, setTierSetting] = useState<'auto' | Tier>((params.get('tier') as Tier) || 'auto');
   const tier = useTier(tierSetting !== 'auto' ? tierSetting : cfg.performance);
   const [frame, setFrame] = useState<Frame>((params.get('frame') as Frame) || 'fit');
   const vp = useViewport();
-  const panel = sim && !params.has('nopanel');
+  // Vorschau im CRM/Dashboard: Einstellungen kommen per postMessage vom umgebenden Fenster.
+  const preview = sim && params.has('preview');
+  useEffect(() => {
+    if (!preview) return;
+    const on = (e: MessageEvent) => {
+      const d = e.data as { type?: string; config?: unknown } | null;
+      if (d?.type === 'kiosk-preview') setSimCfg(mergeConfig(d.config));
+    };
+    window.addEventListener('message', on);
+    window.parent?.postMessage({ type: 'kiosk-preview-ready' }, '*');
+    return () => window.removeEventListener('message', on);
+  }, [preview]);
+  const panel = sim && !params.has('nopanel') && !preview;
   const availW = vp.w - (panel ? 320 : 0);
 
   // Buehne: im Automaten der ganze Bildschirm (ggf. gedreht), in der Demo wahlweise ein Quer-/Hochkant-Bildschirm.

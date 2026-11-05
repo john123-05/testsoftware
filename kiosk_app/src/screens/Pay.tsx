@@ -110,17 +110,24 @@ export function CashPay() {
     k.hw.cashDisable();
     const change = inserted - due;
     void (async () => {
-      if (change > 0 && givesChange) await k.hw.cashPayout(change);
-      else if (change > 0) k.setCredit(change);
-      window.setTimeout(() => k.finish('cash', givesChange ? change : 0), 1000);
+      // Was der Wechsler nicht herausgeben kann (Roehren leer), bleibt als Guthaben stehen.
+      let returned = 0;
+      if (change > 0 && givesChange) {
+        returned = await k.hw.cashPayout(change);
+        if (returned < change) k.setCredit(change - returned);
+      } else if (change > 0) k.setCredit(change);
+      window.setTimeout(() => k.finish('cash', returned), 1000);
     })();
   }, [inserted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cancel() {
     k.hw.cashDisable();
     if (inserted <= 0) { k.back(); return; }
-    if (givesChange) { setLeaving({ kind: 'refund', cents: inserted }); await k.hw.cashPayout(inserted); }
-    else { k.setCredit(inserted); setLeaving({ kind: 'credit', cents: inserted }); }
+    if (givesChange) {
+      setLeaving({ kind: 'refund', cents: inserted });
+      const back = await k.hw.cashPayout(inserted);
+      if (back < inserted) { k.setCredit(inserted - back); setLeaving({ kind: 'credit', cents: inserted - back }); }
+    } else { k.setCredit(inserted); setLeaving({ kind: 'credit', cents: inserted }); }
     setInserted(0);
     window.setTimeout(() => { k.setBusy(false); k.back(); }, 3200);
   }

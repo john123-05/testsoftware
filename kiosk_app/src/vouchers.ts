@@ -6,7 +6,7 @@
 // Pruefung = die ersten 3 Zeichen von HMAC-SHA256(Schluessel, Code ohne Pruefung).
 // Der Schluessel kommt aus dem CRM (vouchers.secret); dort werden die Codes auch erzeugt
 // (gleicher Algorithmus). So funktioniert der Automat auch ohne Internet.
-import type { Voucher } from './hardware';
+export type Voucher = { code: string; kind: 'day' } | { code: string; kind: 'photos'; photos: number };
 
 export const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const EPOCH = Date.UTC(2024, 0, 1);
