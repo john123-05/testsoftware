@@ -1,6 +1,6 @@
 // Liftpictures Kiosk - neues Verkaufsprogramm fuer Fotoautomaten.
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { DEFAULT_CONFIG, EDITIONS, THEMES, applyEdition, mergeConfig, themePreset, type KioskConfig, type Tier } from './config';
+import { DEFAULT_CONFIG, EDITIONS, IDLE_WARNING_SECONDS, THEMES, applyEdition, mergeConfig, themePreset, type KioskConfig, type Tier } from './config';
 import { createHardware, SimHardware } from './hardware';
 import { useKioskData } from './data';
 import { useTier } from './perf';
@@ -46,7 +46,7 @@ function useIdle() {
     return () => { window.removeEventListener('pointerdown', touch, true); window.removeEventListener('keydown', touch, true); };
   }, []);
   useEffect(() => { last.current = Date.now(); }, [k.screen, k.overlay]);
-  const idleSeconds = k.cfg.attract.enabled ? k.cfg.attract.after_seconds : k.cfg.idle_seconds;
+  const idleSeconds = k.cfg.attract.enabled ? k.cfg.attract.after_seconds - IDLE_WARNING_SECONDS : k.cfg.idle_seconds;
   useEffect(() => {
     const id = window.setInterval(() => {
       if (k.screen === 'attract' || k.screen === 'success' || k.busy || k.overlay === 'idle' || k.overlay === 'admin') return;

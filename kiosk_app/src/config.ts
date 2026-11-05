@@ -52,6 +52,8 @@ export type KioskConfig = {
   admin_pin: string;
 };
 
+export const IDLE_WARNING_SECONDS = 10;
+
 export const DEFAULT_CONFIG: KioskConfig = {
   park_name: 'Alpine Coaster',
   currency: 'EUR',
@@ -63,7 +65,7 @@ export const DEFAULT_CONFIG: KioskConfig = {
   express: false,
   theme: { preset: 'clean', brand: null, accent: null, logo: null, background: null },
   attract: {
-    enabled: true, after_seconds: 45, slide_seconds: 5, show_photos: true,
+    enabled: true, after_seconds: 45 + IDLE_WARNING_SECONDS, slide_seconds: 5, show_photos: true,
     headline: '', subline: '', phone_qr: false, show_count: false,
     messages: {
       de: ['Dein Foto von der Fahrt', 'Hier kaufen und mitnehmen', 'Jetzt drucken lassen'],
@@ -174,6 +176,7 @@ function merge<T>(base: T, raw: unknown): T {
 /** Ebenen von unten nach oben: Vorgaben, was der Agent weiss (Links, Logo), Einstellungen aus dem CRM. */
 export function mergeConfig(...layers: unknown[]): KioskConfig {
   const c = layers.reduce<KioskConfig>((acc, raw) => merge(acc, raw), DEFAULT_CONFIG);
+  const idleSeconds = Math.max(15, Math.min(300, c.idle_seconds));
   const langs = c.languages.filter((l) => LANGS.some((x) => x.id === l));
   const attract = { ...c.attract, messages: { ...c.attract.messages } };
   for (const { id } of LANGS) {
@@ -183,11 +186,11 @@ export function mergeConfig(...layers: unknown[]): KioskConfig {
   const hasAttractDelay = layers.some((layer) => typeof (layer as { attract?: { after_seconds?: unknown } } | null)?.attract?.after_seconds === 'number');
   return {
     ...c,
-    attract: { ...attract, after_seconds: Math.max(15, Math.min(300, hasAttractDelay ? attract.after_seconds : c.idle_seconds)), slide_seconds: Math.max(2, Math.min(60, attract.slide_seconds)) },
+    attract: { ...attract, after_seconds: Math.max(15, Math.min(300 + IDLE_WARNING_SECONDS, hasAttractDelay ? attract.after_seconds : idleSeconds + IDLE_WARNING_SECONDS)), slide_seconds: Math.max(2, Math.min(60, attract.slide_seconds)) },
     languages: langs.length ? langs : DEFAULT_CONFIG.languages,
     language: LANGS.some((x) => x.id === c.language) ? c.language : 'en',
     theme: { ...c.theme, preset: themePreset(c.theme.preset) },
-    idle_seconds: Math.max(15, Math.min(300, c.idle_seconds)),
+    idle_seconds: idleSeconds,
     help_seconds: Math.max(8, Math.min(120, c.help_seconds)),
     find: { ...c.find, just_rode_minutes: Math.max(2, Math.min(60, c.find.just_rode_minutes)) },
     packages: c.packages.filter((p) => p && FORMATS.includes(p.format) && p.photos > 1 && p.price > 0),

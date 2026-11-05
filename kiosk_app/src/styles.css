@@ -97,14 +97,15 @@ img { display: block; -webkit-user-drag: none; }
 @keyframes marquee { to { transform: translateX(-50%); } }
 .attract-center { flex: 1; min-height: 0; display: grid; align-content: center; text-align: center; padding: 1rem 3rem; }
 .attract-copy { overflow: hidden; display: grid; align-items: center; max-height: 100%; }
-.attract-copy h1 { max-width: 17ch; margin: 0 auto; font-size: 7rem; font-weight: 500; letter-spacing: -.05em; line-height: .99; overflow-wrap: anywhere; color: var(--text); animation: advert var(--slide-duration) linear both; }
+.attract-copy h1 { max-width: 17ch; margin: 0 auto; font-size: 7rem; font-weight: 500; letter-spacing: -.05em; line-height: .99; overflow-wrap: anywhere; color: var(--text); animation: advert-in 250ms ease-out both, advert-out 250ms ease-in calc(var(--slide-duration) - 250ms) forwards; }
 .attract-copy h1.long { font-size: 4rem; max-width: 36ch; }
 .attract-copy h1.very-long { font-size: 2.3rem; max-width: 56ch; }
 .portrait .attract-copy h1 { font-size: 6.5rem; }
 .portrait .attract-copy h1.long { font-size: 4rem; }
 .portrait .attract-copy h1.very-long { font-size: 2.4rem; }
 .attract-center p { color: var(--muted); margin-top: 1rem; font-size: 1.6rem; }
-@keyframes advert { 0% { clip-path: inset(0 100% 0 0); } 5%, 95% { clip-path: inset(0); } 100% { clip-path: inset(0 0 0 100%); } }
+@keyframes advert-in { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
+@keyframes advert-out { from { clip-path: inset(0); } to { clip-path: inset(0 0 0 100%); } }
 .attract-bottom { display: flex; align-items: center; justify-content: center; gap: 1.6rem; padding: 1.6rem 2.4rem 2.4rem; }
 .portrait .attract-bottom { flex-wrap: wrap; }
 .attract-cta { min-width: 15rem; }
@@ -123,7 +124,7 @@ img { display: block; -webkit-user-drag: none; }
 .zoom-ctl { display: flex; margin-left: auto; border: 1px solid var(--line); border-radius: .85rem; background: var(--surface); overflow: hidden; }
 .zoom-ctl button { width: 7rem; height: 7rem; display: grid; place-items: center; }
 .zoom-ctl button + button { border-left: 1px solid var(--line); }
-.gal-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 2.4rem 1.6rem; touch-action: pan-y; scrollbar-width: none; }
+.gal-scroll { position: relative; flex: 1; min-height: 0; overflow-y: auto; padding: 0 2.4rem 1.6rem; touch-action: pan-y; scrollbar-width: none; }
 .gal-scroll::-webkit-scrollbar { display: none; }
 .gal-group { content-visibility: auto; contain-intrinsic-size: auto 30rem; }
 .gal-time { position: sticky; top: .5rem; z-index: 2; display: flex; width: fit-content; align-items: center; gap: .8rem; margin: .6rem 0 .7rem; padding: .45rem 1rem; border-radius: 99rem; font-size: 1.15rem; font-weight: 750; background: var(--surface); border: 1px solid var(--line); }

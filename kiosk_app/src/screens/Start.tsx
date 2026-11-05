@@ -14,15 +14,18 @@ export function Attract() {
   const shots = show_photos ? k.today.filter((p) => p.src).slice(0, 18) : [];
   const rows = k.portrait && shots.length >= 10 ? [shots.slice(0, 9), shots.slice(9)] : [shots];
 
+  const defaultMessages = DEFAULT_CONFIG.attract.messages[k.lang];
+  const useLegacyHeadline = k.lang === cfg.language && copy.length === defaultMessages.length && copy.every((text, i) => text === defaultMessages[i]);
+  const customHeadline = useLegacyHeadline ? headline.trim() : '';
+  // A new photo refreshes data.js, including fresh copies of the same settings.
+  const sequence = JSON.stringify([k.lang, copy, customHeadline]);
+
   useEffect(() => {
     setSlide(0);
     const id = window.setInterval(() => setSlide((n) => n + 1), duration + 500);
     return () => window.clearInterval(id);
-  }, [copy, headline, duration]);
+  }, [sequence, duration]);
 
-  const defaultMessages = DEFAULT_CONFIG.attract.messages[k.lang];
-  const useLegacyHeadline = k.lang === cfg.language && copy.length === defaultMessages.length && copy.every((text, i) => text === defaultMessages[i]);
-  const customHeadline = useLegacyHeadline ? headline.trim() : '';
   const message = customHeadline && slide % copy.length === 0 ? customHeadline : copy[slide % copy.length];
   return (
     <div className="attract" onClick={() => k.start()}>
@@ -37,7 +40,7 @@ export function Attract() {
       </div>}
       <div className="attract-center">
         <div className="attract-copy">
-          <h1 className={message.length > 150 ? 'very-long' : message.length > 48 ? 'long' : undefined} key={`${k.lang}-${slide}`} style={{ '--slide-duration': `${duration + 500}ms` } as CSSProperties}>{message}</h1>
+          <h1 className={message.length > 150 ? 'very-long' : message.length > 48 ? 'long' : undefined} key={`${sequence}-${duration}-${slide}`} style={{ '--slide-duration': `${duration + 500}ms` } as CSSProperties}>{message}</h1>
         </div>
         {subline && <p>{subline}</p>}
       </div>

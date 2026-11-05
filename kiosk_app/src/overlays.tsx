@@ -1,6 +1,6 @@
 // Einblendungen: Hilfe, "Auf dem Handy suchen", "Bist du noch da?", Sprache, Personal-Menue, nicht freigeschaltet.
 import { useEffect, useState } from 'react';
-import { LANGS } from './config';
+import { IDLE_WARNING_SECONDS, LANGS } from './config';
 import { SimHardware } from './hardware';
 import { salesToday, useKiosk, type Screen } from './store';
 import { Icon, Keypad, Logo, QR } from './ui';
@@ -41,7 +41,7 @@ function Handoff() {
 
 function Idle() {
   const k = useKiosk();
-  const [left, setLeft] = useState(10);
+  const [left, setLeft] = useState(IDLE_WARNING_SECONDS);
   useEffect(() => {
     if (left <= 0) { k.reset(); return; }
     const id = window.setTimeout(() => setLeft((l) => l - 1), 1000);
